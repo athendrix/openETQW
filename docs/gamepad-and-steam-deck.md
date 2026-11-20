@@ -21,7 +21,7 @@ has: no back paddles, touchpad or gyro. `bindGamepadDefaults` binds it again.
 | A | Jump | Vote yes | |
 | B | Tap: crouch (stays down until B, jump or sprint). Hold: prone (tap again to stand) | Vote no | Handbrake |
 | X | Tap: reload. Hold: use, enter a vehicle, arm or disarm | Activate: switch item, launch decoys | Tap: switch seat or launch decoys. Hold: get out |
-| Y | Tap: next weapon. Hold: items (`_weapon5`) | Binoculars | Vehicle camera |
+| Y | Tap: swap guns. Hold: the item while held (`_quickitem`) | Binoculars | Vehicle camera |
 | LB | Grenade: hold to cook, release to throw, then back to your weapon | | Alt-fire |
 | RB | Class tool while held, then back to the gun (`_quicktool`) | | Fire |
 | D-pad up | Quick chat | Context requests | |
@@ -62,8 +62,10 @@ In vehicles Q and E strafe the Desecrator, F switches seat or launches decoys an
 gets out, as in retail. Lean on foot is left unbound. The rest is retail's.
 
 The quick actions (grenade, melee, tool, item) leave you on your gun unless the key is
-held. A tool that needs more than holding fire (a deploy menu, for example) still works
-from its own key (`4`, `5`, the weapon menu). `in_quickDebug 1` prints what they do.
+held. With `in_gunsOnly 1` (the default) the weapon keys, the wheel and next/previous
+weapon only reach the sidearm and the primary; `seta in_gunsOnly 0` brings back
+retail's selection, for the deploy tools and anything else that needs more than holding
+fire. `in_quickDebug 1` prints what the quick actions do.
 
 ## Settings
 

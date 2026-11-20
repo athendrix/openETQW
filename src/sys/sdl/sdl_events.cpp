@@ -349,6 +349,14 @@ void Sys_ProcessSDLEvents( void ) {
 				}
 
 				keyNum_t key = MapSDLScancode( event.key.scancode );
+				// the console key is the one left of 1 (SDL_SCANCODE_GRAVE); on layouts where
+				// another key types ` or ~ (UK ISO, some laptops), that key opens it too
+				if ( key != K_CONSOLE ) {
+					const SDL_Keycode typed = SDL_GetKeyFromScancode( event.key.scancode, SDL_KMOD_NONE, false );
+					if ( typed == SDLK_GRAVE || typed == SDLK_TILDE ) {
+						key = K_CONSOLE;
+					}
+				}
 				const bool textInputActive = SDL_TextInputActive( Sys_GetGameSDLWindow() );
 				// Backspace, Enter and Escape belong to an open composition (TextInputFocus.h)
 				if ( composition.DropKey( CompositionKey( key ), event.key.down ) ) {
