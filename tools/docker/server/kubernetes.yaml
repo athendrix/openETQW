@@ -1,0 +1,58 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# An example: the openETQW dedicated server on Kubernetes (GETTING-STARTED.md section 5).
+# The volume holds base/ (the retail paks, configs, usergroups.dat, bots/botnames.dat)
+# and save/ (what the server writes). Adjust the storage class, size and config name.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: etqw-data
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: etqw
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate            # one server owns the volume and the port
+  selector:
+    matchLabels:
+      app: etqw
+  template:
+    metadata:
+      labels:
+        app: etqw
+    spec:
+      # LAN players' broadcasts, IPv6 and the DHT see the node's own addresses
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000         # the volume's files become the server's
+      containers:
+        - name: server
+          image: ghcr.io/athendrix/openetqw-server:feat-destiny-controls
+          imagePullPolicy: Always
+          stdin: true         # the server console: kubectl attach -it deploy/etqw
+          tty: true
+          env:
+            - name: ETQW_CONFIG
+              value: server.cfg
+            - name: ETQW_MAP      # empty: the config starts the map (a rotation's "vstr m0")
+              value: valley
+            - name: ETQW_PORT
+              value: "27733"
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: etqw-data

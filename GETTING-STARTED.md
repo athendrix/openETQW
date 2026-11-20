@@ -114,7 +114,7 @@ one volume, `/data`:
 
 | Path in the volume | What |
 |---|---|
-| `/data/base/` | the retail game data: copy `pak000.pk4` ... `pak008.pk4` (and `megatextures/`) here |
+| `/data/base/` | the retail game data: copy `pak000.pk4` ... `pak008.pk4` (and `megatextures/`) here; your own configs, `usergroups.dat` and `bots/botnames.dat` can go here too |
 | `/data/save/base/server.cfg` | the server's settings; the first start writes a starting one |
 | `/data/save/` | what the server writes: its identity key (`serverkey.dat`), DHT nodes (`dht.dat`), logs |
 
@@ -141,13 +141,19 @@ docker run -d --name etqw-server --restart unless-stopped -it --network host -v 
   `--userns=keep-id:uid=1000,gid=1000`; then the folder can stay yours (skip the
   `chown`).
 - `-e ETQW_MAP=refinery` picks the first map (default `valley`), `-e ETQW_PORT=27734`
-  another port. Anything after the image name goes to the server, for example
+  another port, `-e ETQW_CONFIG=myserver.cfg` another config (from `/data/save/base`
+  or `/data/base`). A config that starts its own map rotation (`vstr m0`, below) wants
+  `-e ETQW_MAP=` (empty). Anything after the image name goes to the server, for example
   `+set si_maxPlayers 16`.
 
 The first start writes `~/etqw-server/save/base/server.cfg` and the server starts with it.
 Edit it, then `docker restart etqw-server`. The server's console is
 `docker attach etqw-server` (detach with Ctrl+P, Ctrl+Q); its output is
 `docker logs etqw-server`.
+
+**On Kubernetes:** `tools/docker/server/kubernetes.yaml` is an example Deployment: host
+networking, the server as uid 1000 (`fsGroup: 1000` makes the volume its), a volume at
+`/data`, and the console with `kubectl attach -it deploy/etqw`.
 
 From the image file instead of the registry: `gunzip -c openetqw-server-image.tar.gz |
 docker load`, and use the image name it prints.
@@ -182,7 +188,22 @@ set g_password "changeme"
 ```
 
 Anyone can use any player name, so the join password is what keeps a private server
-private. Remote console (`rcon`) does not work yet: use the server's own console.
+private. Remote console (`rcon`) does not work yet: use the server's own console, or
+log in as an admin in game (`usergroups.dat`, as retail; `admin login <password>` in the
+client console).
+
+Retail server configs work as they are: bots (`bot_minClients`, `bots/botnames.dat`),
+user groups and admin rights (`usergroups.dat`), and a map rotation chained through
+`g_nextMap` with `$name` (a cvar's text):
+
+```
+set m0 "set g_nextMap $m1;set si_rules sdGameRulesCampaign;spawnServer campaign_northamerica"
+set m1 "set g_nextMap $m0;set si_rules sdGameRulesCampaign;spawnServer campaign_northeurope"
+vstr m0
+```
+
+Settings for what OpenETQW does not have are ignored: PunkBuster, the ETQW TV repeater
+(`net_spawnRepeater`, `ri_*`), VoIP, and Demonware accounts (`net_LANForceAuth`).
 
 **The network:** open **UDP 27733** (or your `net_port`) in the firewall, for IPv4 and
 IPv6, and for players outside your LAN forward it on your router to the server. The same

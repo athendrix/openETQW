@@ -107,6 +107,17 @@ server_cache_test = executable(
 )
 test('server-cache', server_cache_test, suite: 'unit', timeout: 30)
 
+# "$name" cvar expansion in commands (retail map rotations)
+cvar_macro_test = executable(
+  'openetqw-cvar-macro-test',
+  files('CvarMacroTest.cpp'),
+  include_directories: test_include_dirs,
+  dependencies: test_deps,
+  link_args: test_link_args,
+  install: false,
+)
+test('cvar-macro', cvar_macro_test, suite: 'unit', timeout: 30)
+
 # 2. UserCmd delta serialization & sequence test
 usercmd_test_src = files(
   'UserCmdDeltaTest.cpp',

@@ -23,6 +23,7 @@ RUN chmod 0755 /opt/openetqw/entrypoint.sh \
 # not root; the volume's files belong to uid 1000
 USER 1000:1000
 ENV HOME=/data/save \
+    ETQW_CONFIG=server.cfg \
     ETQW_MAP=valley \
     ETQW_PORT=27733
 VOLUME ["/data"]
