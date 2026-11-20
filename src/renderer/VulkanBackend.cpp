@@ -745,6 +745,7 @@ struct sdVulkanBackendState {
 	VkPipeline				guiAddPipeline;
 	VkPipeline				guiAlphaAddPipeline;
 	VkPipeline				guiMultiplyPipeline;
+	VkPipeline				guiBlendPipelines[ 256 ];	// other blends, by drawStateBits & 0xFF (GUI_EXTRA_BLENDS)
 	// retail's trivialMaskImage, by GuiBlendIndex (#379)
 	VkPipelineLayout			guiMaskPipelineLayout;
 	VkPipeline				guiMaskPipelines[ VULKAN_GUI_BLENDS ];
@@ -1035,6 +1036,9 @@ struct sdVulkanBackendState {
 		guiAddPipeline = VK_NULL_HANDLE;
 		guiAlphaAddPipeline = VK_NULL_HANDLE;
 		guiMultiplyPipeline = VK_NULL_HANDLE;
+		for ( int i = 0; i < 256; i++ ) {
+			guiBlendPipelines[ i ] = VK_NULL_HANDLE;
+		}
 		guiMaskPipelineLayout = VK_NULL_HANDLE;
 		for ( int i = 0; i < VULKAN_GUI_BLENDS; i++ ) {
 			guiMaskPipelines[ i ] = VK_NULL_HANDLE;
@@ -4161,6 +4165,12 @@ void DestroyGuiResources( sdVulkanBackendState& state ) {
 		state.DestroyPipeline( state.device, state.guiMultiplyPipeline, NULL );
 		state.guiMultiplyPipeline = VK_NULL_HANDLE;
 	}
+	for ( int i = 0; i < 256; i++ ) {
+		if ( state.guiBlendPipelines[ i ] != VK_NULL_HANDLE ) {
+			state.DestroyPipeline( state.device, state.guiBlendPipelines[ i ], NULL );
+			state.guiBlendPipelines[ i ] = VK_NULL_HANDLE;
+		}
+	}
 	if ( state.guiAlphaAddPipeline != VK_NULL_HANDLE ) {
 		state.DestroyPipeline( state.device, state.guiAlphaAddPipeline, NULL );
 		state.guiAlphaAddPipeline = VK_NULL_HANDLE;
@@ -5646,6 +5656,41 @@ int NormalizedBlendBits( int drawStateBits ) {
 	return bits == 0x31 ? 0x03 : bits;
 }
 
+// GLS_SRCBLEND_* and GLS_DSTBLEND_* (tr_local.h) as Vulkan factors; false for a
+// value that is neither
+bool VulkanBlendFactors( int bits, VkBlendFactor& source, VkBlendFactor& destination ) {
+	switch ( bits & 0x0F ) {
+		case 0x0: source = VK_BLEND_FACTOR_ONE; break;
+		case 0x1: source = VK_BLEND_FACTOR_ZERO; break;
+		case 0x3: source = VK_BLEND_FACTOR_DST_COLOR; break;
+		case 0x4: source = VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR; break;
+		case 0x5: source = VK_BLEND_FACTOR_SRC_ALPHA; break;
+		case 0x6: source = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA; break;
+		case 0x7: source = VK_BLEND_FACTOR_DST_ALPHA; break;
+		case 0x8: source = VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA; break;
+		case 0x9: source = VK_BLEND_FACTOR_SRC_ALPHA_SATURATE; break;
+		default: return false;
+	}
+	switch ( bits & 0xF0 ) {
+		case 0x00: destination = VK_BLEND_FACTOR_ZERO; break;
+		case 0x20: destination = VK_BLEND_FACTOR_ONE; break;
+		case 0x30: destination = VK_BLEND_FACTOR_SRC_COLOR; break;
+		case 0x40: destination = VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR; break;
+		case 0x50: destination = VK_BLEND_FACTOR_SRC_ALPHA; break;
+		case 0x60: destination = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA; break;
+		case 0x70: destination = VK_BLEND_FACTOR_DST_ALPHA; break;
+		case 0x80: destination = VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA; break;
+		default: return false;
+	}
+	return true;
+}
+
+// the blends retail's materials name besides the five GUI pipelines' (opaque, add,
+// alpha add, multiply, source alpha over): inverse multiply, premultiplied alpha,
+// 2x modulate, destination alpha add, screen, alpha cut-out, no colour. Drawn as
+// source alpha over, an inverse multiply (white on black) covered what lay under it
+static const int GUI_EXTRA_BLENDS[] = { 0x41, 0x60, 0x33, 0x27, 0x24, 0x61, 0x21 };
+
 // the GUI blends DrawGuiFan draws with, by drawStateBits & 0xFF; anything else
 // draws as 0x65
 int GuiBlendIndex( int drawStateBits ) {
@@ -6022,6 +6067,23 @@ bool CreateGuiResources( sdVulkanBackendState& state ) {
 		created = CheckVulkanResult( state.CreateGraphicsPipelines(
 			state.device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL,
 			&state.guiMultiplyPipeline ), "vkCreateGraphicsPipelines(gui multiply)" );
+	}
+	// the other blends retail GUI materials use (GUI_EXTRA_BLENDS); one that fails
+	// to build draws as source alpha over, as before
+	if ( created ) {
+		blendAttachment.blendEnable = VK_TRUE;
+		for ( size_t i = 0; i < sizeof( GUI_EXTRA_BLENDS ) / sizeof( GUI_EXTRA_BLENDS[ 0 ] ); i++ ) {
+			const int bits = GUI_EXTRA_BLENDS[ i ];
+			if ( !VulkanBlendFactors( bits, blendAttachment.srcColorBlendFactor, blendAttachment.dstColorBlendFactor ) ) {
+				continue;
+			}
+			CheckVulkanResult( state.CreateGraphicsPipelines(
+				state.device, VK_NULL_HANDLE, 1, &pipelineInfo, NULL,
+				&state.guiBlendPipelines[ bits ] ), "vkCreateGraphicsPipelines(gui blend)" );
+		}
+		// the template as it was after the multiply pipeline, as the mask pipelines expect
+		blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_DST_COLOR;
+		blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
 	}
 	state.DestroyShaderModule( state.device, vertexModule, NULL );
 	state.DestroyShaderModule( state.device, fragmentModule, NULL );
@@ -13573,6 +13635,8 @@ bool sdVulkanBackend::DrawGuiFan( const void* imageOwner,
 		guiPipeline = state->guiAlphaAddPipeline;
 	} else if ( blendBits == 0x03 && state->guiMultiplyPipeline != VK_NULL_HANDLE ) {
 		guiPipeline = state->guiMultiplyPipeline;
+	} else if ( blendBits != 0x65 && state->guiBlendPipelines[ blendBits ] != VK_NULL_HANDLE ) {
+		guiPipeline = state->guiBlendPipelines[ blendBits ];
 	}
 	return DrawGuiFanVertices( *state, guiPipeline, state->guiPipelineLayout,
 		&imageResource->descriptorSet, 1, vertices, sizeof( sdVulkanGuiVertex ),
