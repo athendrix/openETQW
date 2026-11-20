@@ -52,7 +52,7 @@ const int BROWSER_NO_PING			= 999;		// what the game shows as no answer
 
 class sdNetSessionBrowser : public sdNetSession {
 public:
-	sdNetSessionBrowser( const netadr_t& address ) : address( address ), ping( BROWSER_NO_PING ), numBots( 0 ) {
+	sdNetSessionBrowser( const netadr_t& address ) : address( address ), ping( BROWSER_NO_PING ), numBots( 0 ), gameState( 0 ), timeLeft( 0 ) {
 		addressString = Sys_NetAdrToString( address );
 	}
 
@@ -75,6 +75,8 @@ public:
 			}
 		}
 		ping = idMath::ClampInt( 0, BROWSER_NO_PING - 1, newPing );
+		gameState = static_cast< byte >( info.gameState );
+		timeLeft = info.timeLeft;
 	}
 
 	virtual sessionState_e		GetState() const { return SS_IDLE; }
@@ -91,8 +93,8 @@ public:
 	}
 	virtual const int			GetPing() const { return ping; }
 	virtual bool				IsRanked() const { return false; }
-	virtual byte				GetGameState() const { return 0; }
-	virtual int					GetSessionTime() const { return 0; }
+	virtual byte				GetGameState() const { return gameState; }
+	virtual int					GetSessionTime() const { return timeLeft; }
 	virtual bool				Join() {
 		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, va( "connect %s\n", addressString.c_str() ) );
 		return true;
@@ -117,6 +119,8 @@ private:
 	idList< sessionClientInfo_t >	clients;
 	int								ping;
 	int								numBots;
+	byte							gameState;
+	int								timeLeft;
 };
 
 class sdNetTaskBrowser : public sdNetTask {
@@ -744,9 +748,10 @@ void ConsoleQueryFrame() {
 	for ( int i = 0; i < consoleQuery->sessions.Num(); i++ ) {
 		sdNetSession* session = consoleQuery->sessions[ i ];
 		const idDict& info = session->GetServerInfo();
-		common->Printf( "  %-21s %4dms  %d/%d  %s  %s  %s\n", session->GetHostAddressString(), session->GetPing(),
+		const int seconds = session->GetSessionTime() / 1000;
+		common->Printf( "  %-21s %4dms  %d/%d  %s  %s  state %d  %d:%02d left  %s\n", session->GetHostAddressString(), session->GetPing(),
 			session->GetNumClients(), info.GetInt( "si_maxPlayers" ), info.GetString( "si_map" ),
-			info.GetString( "si_rules" ), info.GetString( "si_name" ) );
+			info.GetString( "si_rules" ), session->GetGameState(), seconds / 60, seconds % 60, info.GetString( "si_name" ) );
 	}
 	Browser().FreeTask( consoleQuery->task );
 	for ( int i = 0; i < consoleQuery->sessions.Num(); i++ ) {

@@ -14,7 +14,9 @@ starts with short -1 (connectionless) and a command string.
                                  cookie, 8 bytes work
   4. server  "infoResponse"      long protocol, long nonce, short key count, each key and
                                  value as strings, byte player count, each player's name
-                                 (string), ping (short) and bot flag (byte)
+                                 (string), ping (short) and bot flag (byte), then the
+                                 match's state (byte, the game's PGS_* flags) and its time
+                                 left in milliseconds (long)
 
 Step 1 is padded so the server's answer to it is no bigger than the question: a spoofed
 source gets nothing amplified. The cookie is an HMAC of the client's address and port,
@@ -70,6 +72,8 @@ struct sqInfo_t {
 	char		values[ SQ_MAX_KEYS ][ SQ_MAX_VALUE_LENGTH ];
 	int			numPlayers;
 	sqPlayer_t	players[ SQ_MAX_PLAYERS ];
+	int			gameState;		// idGame::GetProbeState: warmup, running, reviewing, loading
+	int			timeLeft;		// idGame::GetProbeTime, milliseconds
 
 	void Clear() {
 		memset( this, 0, sizeof( *this ) );
@@ -404,7 +408,7 @@ inline void SQ_WriteResponse( idBitMsg& msg, const sqInfo_t& info ) {
 	msg.WriteLong( info.protocol );
 	msg.WriteLong( info.nonce );
 
-	int playerBytes = 1;
+	int playerBytes = 1 + 5;	// the count, and the state and time after the players
 	for ( int i = 0; i < info.numPlayers; i++ ) {
 		playerBytes += SQ_PlayerBytes( info.players[ i ] );
 	}
@@ -424,7 +428,7 @@ inline void SQ_WriteResponse( idBitMsg& msg, const sqInfo_t& info ) {
 	}
 
 	int numPlayers = 0;
-	int room = msg.GetRemainingSpace() - 1;
+	int room = msg.GetRemainingSpace() - 1 - 5;
 	while ( numPlayers < info.numPlayers && SQ_PlayerBytes( info.players[ numPlayers ] ) <= room ) {
 		room -= SQ_PlayerBytes( info.players[ numPlayers ] );
 		numPlayers++;
@@ -435,6 +439,8 @@ inline void SQ_WriteResponse( idBitMsg& msg, const sqInfo_t& info ) {
 		msg.WriteShort( info.players[ i ].ping );
 		msg.WriteByte( info.players[ i ].bot ? 1 : 0 );
 	}
+	msg.WriteByte( info.gameState & 0xff );
+	msg.WriteLong( info.timeLeft );
 }
 
 /*
@@ -477,6 +483,14 @@ inline bool SQ_ReadResponse( const idBitMsg& msg, sqInfo_t& info ) {
 		player.bot = msg.ReadByte() != 0;
 	}
 	info.numPlayers = numPlayers;
+	if ( msg.GetRemainingData() < 5 ) {
+		return false;
+	}
+	info.gameState = msg.ReadByte();
+	info.timeLeft = msg.ReadLong();
+	if ( info.timeLeft < 0 ) {
+		info.timeLeft = 0;
+	}
 	return true;
 }
 

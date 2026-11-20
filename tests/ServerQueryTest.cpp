@@ -220,6 +220,8 @@ static void TestRoundTrip() {
 	info.AddKey( "si_maxPlayers", "24" );
 	info.AddPlayer( "Alice", 42, false );
 	info.AddPlayer( "Bot 3", 0, true );
+	info.gameState = 2;
+	info.timeLeft = 754000;
 
 	byte buffer[ 1400 ];
 	idBitMsg msg;
@@ -235,6 +237,7 @@ static void TestRoundTrip() {
 	Expect( read.numKeys == 3 && read.FindValue( "si_map" ) != NULL && strcmp( read.FindValue( "si_map" ), "maps/valley" ) == 0, "keys" );
 	Expect( read.numPlayers == 2 && strcmp( read.players[ 0 ].name, "Alice" ) == 0 && read.players[ 0 ].ping == 42 && !read.players[ 0 ].bot, "a player" );
 	Expect( read.players[ 1 ].bot, "a bot" );
+	Expect( read.gameState == 2 && read.timeLeft == 754000, "the match state and time left" );
 }
 
 static void TestOnePacket() {
@@ -330,6 +333,8 @@ static void TestHostile() {
 	longMsg.WriteString( longKey, -1, false );
 	longMsg.WriteString( "v" );
 	longMsg.WriteByte( 0 );
+	longMsg.WriteByte( 0 );		// state
+	longMsg.WriteLong( 0 );		// time left
 	Expect( ReadCommand( longMsg, SQ_RESPONSE ) && SQ_ReadResponse( longMsg, read ), "a long key reads" );
 	Expect( strlen( read.keys[ 0 ] ) == SQ_MAX_KEY_LENGTH - 1 && strcmp( read.values[ 0 ], "v" ) == 0, "a long key is cut and the next field still reads" );
 }

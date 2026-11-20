@@ -1882,6 +1882,10 @@ void idAsyncServer::ProcessGetInfoMessage( const netadr_t from, const idBitMsg& 
 		}
 		info->AddPlayer( sessLocal.mapSpawnData.userInfo[ i ].GetString( "ui_name" ), client.isBot ? 0 : client.clientPing, client.isBot );
 	}
+	if ( game != NULL ) {
+		info->gameState = game->GetProbeState();
+		info->timeLeft = game->GetProbeTime();
+	}
 
 	// one unfragmented packet
 	byte buffer[ 1400 ];
