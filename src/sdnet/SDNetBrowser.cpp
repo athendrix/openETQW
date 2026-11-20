@@ -9,12 +9,19 @@ profile), RefreshSession for one server. Retail answered those through Demonware
 server; the offline service answered nothing, so the browser stayed empty.
 
 Here each tab is filled by asking the servers themselves (ServerQuery.h):
-  LAN        a broadcast to the server port (27733), and the saved server list;
+  LAN        a broadcast to the server port (27733), to 255.255.255.255 and to each
+             interface's subnet, the servers found by the slow sweep below, and the
+             saved server list;
   Internet   the saved server list (net_serverList, edited with addServer, removeServer);
   History    the last servers joined (written here when a connect is accepted);
   Favorites  the servers starred in the browser.
 The profile, which holds the history and the favorites, is saved to the save path
 (SDNet.cpp), so both survive a restart.
+
+Networks that drop broadcasts still get a LAN tab: from the first frame the client
+sweeps its private subnets host by host on the server port, slowly (net_lanSweepRate
+packets a second, at most net_lanSweepMaxHosts hosts; LanDiscovery.h), and keeps the
+servers that answer. A LAN search after the sweep has ended starts it again.
 
 Everything runs on the main thread: the game's UI calls in and the engine's frame calls
 SDNet_BrowserFrame, so the tasks' locks have nothing to guard.
@@ -32,15 +39,22 @@ SDNet_BrowserFrame, so the tasks' locks have nothing to guard.
 #include "../framework/async/AsyncNetwork.h"
 #include "../framework/async/ServerQuery.h"
 #include "SDNetBrowser.h"
+#include "LanDiscovery.h"
+#include "../sys/LocalSubnets.h"
 
 #include <condition_variable>
 #include <deque>
 #include <mutex>
 #include <thread>
 #include <utility>
+#include <vector>
 
 idCVar net_browserMaxDifficulty( "net_browserMaxDifficulty", "24", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_INTEGER | CVAR_NOCHEAT, "the most proof of work (leading zero bits) the server browser does for one server; a server asking more is not listed", SQ_MIN_DIFFICULTY, SQ_MAX_DIFFICULTY );
 idCVar net_serverList( "net_serverList", "", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_NOCHEAT, "servers the menu's server browser lists (Internet tab), separated by spaces: host or host:port. Edit with addServer and removeServer" );
+
+idCVar net_lanSweepRate( "net_lanSweepRate", "50", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_INTEGER | CVAR_NOCHEAT, "packets a second the server browser's LAN sweep sends, asking each host on the local subnets for a server; 0 turns the sweep off (broadcasts are still sent)", 0, 1000 );
+idCVar net_lanSweepMaxHosts( "net_lanSweepMaxHosts", "4096", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_INTEGER | CVAR_NOCHEAT, "the most hosts one LAN sweep asks; a bigger subnet is swept in the block of this size around this computer's address", 0, 65536 );
+idCVar net_lanScanAtStart( "net_lanScanAtStart", "1", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_BOOL | CVAR_NOCHEAT, "look for LAN servers as soon as the game starts, not only when the LAN tab is opened" );
 
 namespace {
 
@@ -49,6 +63,9 @@ const int BROWSER_TRIES				= 3;
 const int BROWSER_FIND_MSEC			= 4000;		// a find ends this long after it starts
 const int BROWSER_REFRESH_MSEC		= 3000;
 const int BROWSER_NO_PING			= 999;		// what the game shows as no answer
+const int LAN_RESWEEP_MSEC			= 5 * 60 * 1000;	// a LAN search sweeps again once the last sweep is this old
+const int LAN_MAX_SUBNETS			= 16;
+const int LAN_MAX_SERVERS			= 64;		// servers the sweeps and broadcasts have found
 
 class sdNetSessionBrowser : public sdNetSession {
 public:
@@ -125,7 +142,7 @@ private:
 
 class sdNetTaskBrowser : public sdNetTask {
 public:
-	sdNetTaskBrowser() : state( TS_PENDING ), findList( NULL ), deadline( 0 ) {}
+	sdNetTaskBrowser() : state( TS_PENDING ), findList( NULL ), deadline( 0 ), lan( false ) {}
 
 	virtual void				Cancel( bool ) { state = TS_DONE; }
 	virtual taskStatus_e		GetState() const { return state; }
@@ -136,6 +153,7 @@ public:
 	taskStatus_e				state;
 	idList< sdNetSession* >*	findList;	// a find appends the servers that answer; NULL for a refresh
 	int							deadline;
+	bool						lan;		// a LAN search: takes the servers the sweep finds while it runs
 };
 
 /*
@@ -265,7 +283,7 @@ struct query_t {
 
 class sdServerBrowser {
 public:
-	sdServerBrowser() : nextNonce( 1 ), nextId( 1 ) {}
+	sdServerBrowser() : nextNonce( 1 ), nextId( 1 ), sweepNonce( 0 ), sweepNext( 0 ), sweepLastSend( 0 ), sweepEnded( 0 ), sweepRunning( false ), scanned( false ) {}
 
 	sdNetSession* AllocSession( const netadr_t* address ) {
 		netadr_t adr;
@@ -296,18 +314,26 @@ public:
 
 		const bool lan = source == sdNetSessionManager::SS_LAN;
 		const bool internet = source == sdNetSessionManager::SS_INTERNET_ALL || source == sdNetSessionManager::SS_INTERNET_RANKED;
+		task->lan = lan;
 		if ( lan ) {
-			netadr_t adr;
-			memset( &adr, 0, sizeof( adr ) );
-			adr.type = NA_BROADCAST;
-			adr.port = PORT_SERVER;
-			AddQuery( task, NULL, adr, true );
+			idList< netadr_t > broadcasts;
+			BroadcastAddresses( broadcasts );
+			for ( int i = 0; i < broadcasts.Num(); i++ ) {
+				AddQuery( task, NULL, broadcasts[ i ], true );
+			}
+			for ( int i = 0; i < lanServers.Num(); i++ ) {
+				AddQueryOnce( task, lanServers[ i ] );
+			}
+			const int now = Sys_Milliseconds();
+			if ( !sweepRunning && ( !scanned || now - sweepEnded >= LAN_RESWEEP_MSEC ) ) {
+				StartSweep( now, false );
+			}
 		}
 		if ( lan || internet ) {
 			idList< netadr_t > listed;
 			ListedServers( listed );
 			for ( int i = 0; i < listed.Num(); i++ ) {
-				AddQuery( task, NULL, listed[ i ], false );
+				AddQueryOnce( task, listed[ i ] );
 			}
 		}
 		// repeater sources (ETQW TV) have nothing to find
@@ -354,6 +380,7 @@ public:
 		const int now = Sys_Milliseconds();
 		ReadAnswers( now );
 		TakeSolutions( now );
+		SweepFrame( now );
 
 		// resend what has not been answered: a lost cookie or a lost info answer starts
 		// over with a new cookie (the server answers a cookie once)
@@ -401,8 +428,25 @@ public:
 		}
 	}
 
+	// the first look at the LAN, when the game starts: broadcasts and the sweep, with no
+	// search waiting on them
+	void ScanAtStart() {
+		if ( scanned ) {
+			return;
+		}
+		scanned = true;
+		if ( !InitPort() ) {
+			return;
+		}
+		StartSweep( Sys_Milliseconds(), true );
+	}
+
+	bool LanServerSeen() const { return lanServers.Num() > 0; }
+
 	void Shutdown() {
 		solver.Stop();
+		sweepRunning = false;
+		sweepTargets.clear();
 		queries.Clear();
 		for ( int i = 0; i < tasks.Num(); i++ ) {
 			tasks[ i ]->state = sdNetTask::TS_DONE;
@@ -478,6 +522,159 @@ private:
 	void AddQuery( sdNetTaskBrowser* task, sdNetSessionBrowser* session, const netadr_t& address, bool broadcast ) {
 		query_t& query = NewQuery( task, session, address, broadcast, nextNonce++ & 0x7fffffff );
 		SendChallengeRequest( query, Sys_Milliseconds() );
+	}
+
+	// a query for a server, unless the task already has one for it
+	void AddQueryOnce( sdNetTaskBrowser* task, const netadr_t& address ) {
+		for ( int i = 0; i < queries.Num(); i++ ) {
+			if ( queries[ i ].task == task && !queries[ i ].broadcast && SameAddress( queries[ i ].address, address ) ) {
+				return;
+			}
+		}
+		AddQuery( task, NULL, address, false );
+	}
+
+	// 255.255.255.255 and each interface's directed broadcast address, on the server port
+	static void BroadcastAddresses( idList< netadr_t >& out ) {
+		netadr_t adr;
+		memset( &adr, 0, sizeof( adr ) );
+		adr.type = NA_BROADCAST;
+		adr.port = PORT_SERVER;
+		out.Append( adr );
+		lanSubnet_t subnets[ LAN_MAX_SUBNETS ];
+		const int numSubnets = Sys_GetLocalSubnets( subnets, LAN_MAX_SUBNETS );
+		for ( int i = 0; i < numSubnets; i++ ) {
+			if ( !LAN_IsValidMask( subnets[ i ].mask ) ) {
+				continue;
+			}
+			const uint32_t broadcast = LAN_DirectedBroadcast( subnets[ i ] );
+			if ( broadcast == 0 ) {
+				continue;
+			}
+			memset( &adr, 0, sizeof( adr ) );
+			adr.type = NA_IP;
+			adr.port = PORT_SERVER;
+			SetIp( adr, broadcast );
+			bool known = false;
+			for ( int j = 0; j < out.Num() && !known; j++ ) {
+				known = SameAddress( out[ j ], adr );
+			}
+			if ( !known ) {
+				out.Append( adr );
+			}
+		}
+	}
+
+	static void SetIp( netadr_t& adr, uint32_t address ) {
+		adr.ip[ 0 ] = static_cast< byte >( address >> 24 );
+		adr.ip[ 1 ] = static_cast< byte >( address >> 16 );
+		adr.ip[ 2 ] = static_cast< byte >( address >> 8 );
+		adr.ip[ 3 ] = static_cast< byte >( address );
+	}
+
+	void SendSweepRequest( const netadr_t& address ) {
+		byte buffer[ 128 ];
+		idBitMsg msg;
+		msg.InitWrite( buffer, sizeof( buffer ) );
+		msg.BeginWriting();
+		SQ_WriteChallengeRequest( msg, ASYNC_PROTOCOL_VERSION, sweepNonce );
+		port.SendPacket( address, msg.GetData(), msg.GetSize() );
+	}
+
+	/*
+	A sweep: one request with its own nonce to the broadcast addresses (unless a search
+	sent them already), then to each host of the local subnets, paced by net_lanSweepRate.
+	A server answering is kept in lanServers, and handed to the LAN searches running.
+	*/
+	void StartSweep( int now, bool broadcast ) {
+		sweepNonce = nextNonce++ & 0x7fffffff;
+		if ( broadcast ) {
+			idList< netadr_t > broadcasts;
+			BroadcastAddresses( broadcasts );
+			for ( int i = 0; i < broadcasts.Num(); i++ ) {
+				SendSweepRequest( broadcasts[ i ] );
+			}
+		}
+		sweepTargets.clear();
+		sweepNext = 0;
+		sweepRunning = false;
+		if ( net_lanSweepRate.GetInteger() <= 0 ) {
+			sweepEnded = now;
+			return;
+		}
+		lanSubnet_t subnets[ LAN_MAX_SUBNETS ];
+		const int numSubnets = Sys_GetLocalSubnets( subnets, LAN_MAX_SUBNETS );
+		LAN_SweepTargets( subnets, numSubnets, net_lanSweepMaxHosts.GetInteger(), sweepTargets );
+		sweepRunning = !sweepTargets.empty();
+		sweepLastSend = now;
+		if ( !sweepRunning ) {
+			sweepEnded = now;
+		}
+	}
+
+	void SweepFrame( int now ) {
+		if ( !sweepRunning ) {
+			return;
+		}
+		const int rate = net_lanSweepRate.GetInteger();
+		if ( rate <= 0 ) {
+			sweepRunning = false;
+			sweepEnded = now;
+			return;
+		}
+		// whole packets due since the last send, a handful a frame at most
+		const int due = idMath::ClampInt( 0, 16, ( now - sweepLastSend ) * rate / 1000 );
+		for ( int i = 0; i < due && sweepNext < sweepTargets.size(); i++ ) {
+			netadr_t adr;
+			memset( &adr, 0, sizeof( adr ) );
+			adr.type = NA_IP;
+			adr.port = PORT_SERVER;
+			SetIp( adr, sweepTargets[ sweepNext++ ] );
+			SendSweepRequest( adr );
+		}
+		if ( due > 0 ) {
+			sweepLastSend = now;
+		}
+		if ( sweepNext >= sweepTargets.size() ) {
+			sweepRunning = false;
+			sweepEnded = now;
+			sweepTargets.clear();
+		}
+	}
+
+	// a server answered the sweep or the start's broadcast
+	void SweepAnswered( const netadr_t& from, const sqChallenge_t& challenge ) {
+		bool known = false;
+		for ( int i = 0; i < lanServers.Num() && !known; i++ ) {
+			known = SameAddress( lanServers[ i ], from );
+		}
+		if ( !known && lanServers.Num() < LAN_MAX_SERVERS ) {
+			lanServers.Append( from );
+		}
+		// the first LAN search to take it uses this cookie; the server answers a cookie
+		// once, so any other asks for its own
+		bool cookieUsed = false;
+		for ( int t = 0; t < tasks.Num(); t++ ) {
+			sdNetTaskBrowser* task = tasks[ t ];
+			if ( !task->lan || task->state == sdNetTask::TS_DONE ) {
+				continue;
+			}
+			bool asked = false;
+			for ( int j = 0; j < queries.Num() && !asked; j++ ) {
+				asked = queries[ j ].task == task && !queries[ j ].broadcast && SameAddress( queries[ j ].address, from );
+			}
+			if ( asked ) {
+				continue;
+			}
+			if ( !cookieUsed ) {
+				query_t& found = NewQuery( task, NULL, from, false, challenge.nonce );
+				found.tries = 1;
+				StartSolving( found, challenge );
+				cookieUsed = true;
+			} else {
+				AddQuery( task, NULL, from, false );
+			}
+		}
 	}
 
 	void RemoveQuery( int index ) {
@@ -569,6 +766,10 @@ private:
 		if ( challenge.difficulty > net_browserMaxDifficulty.GetInteger() ) {
 			return;	// more work than we are willing to do for one server
 		}
+		if ( sweepNonce != 0 && challenge.nonce == sweepNonce ) {
+			SweepAnswered( from, challenge );
+			return;
+		}
 		for ( int i = 0; i < queries.Num(); i++ ) {
 			query_t& query = queries[ i ];
 			if ( query.nonce != challenge.nonce || query.task->state == sdNetTask::TS_DONE ) {
@@ -630,6 +831,16 @@ private:
 	sdPowSolver					solver;
 	int							nextNonce;
 	int							nextId;
+
+	// the LAN sweep
+	int							sweepNonce;
+	std::vector< uint32_t >		sweepTargets;
+	size_t						sweepNext;
+	int							sweepLastSend;
+	int							sweepEnded;
+	bool						sweepRunning;
+	bool						scanned;		// the sweep has run at least once
+	idList< netadr_t >			lanServers;		// servers on the LAN that answered
 };
 
 sdServerBrowser* browser = NULL;
@@ -845,10 +1056,23 @@ void SDNet_BrowserServerInfo( const char* address ) {
 }
 
 void SDNet_BrowserFrame( void ) {
+	// the first look at the LAN, so the LAN tab is filled by the time the menu opens
+	// (a dedicated server has no browser)
+	static bool lookedAtStart = false;
+	if ( !lookedAtStart ) {
+		lookedAtStart = true;
+		if ( net_lanScanAtStart.GetBool() && !idAsyncNetwork::serverDedicated.GetBool() ) {
+			Browser().ScanAtStart();
+		}
+	}
 	if ( browser != NULL ) {
 		browser->Frame();
 		ConsoleQueryFrame();
 	}
+}
+
+bool SDNet_BrowserLanServerSeen( void ) {
+	return browser != NULL && browser->LanServerSeen();
 }
 
 void SDNet_BrowserFreeTask( sdNetTask* task ) {

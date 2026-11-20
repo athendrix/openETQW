@@ -20,6 +20,7 @@
 
 #include <winsock2.h>
 #include <mswsock.h>
+#include <ws2tcpip.h>
 #include <string>
 #include <vector>
 #include <timeapi.h>
@@ -34,6 +35,7 @@
 #include "../../framework/RetailDiscovery.h"
 #include "../../framework/Session_local.h"
 #include "../URLPolicy.h"
+#include "../LocalSubnets.h"
 
 // Instantiation of system localization and sysLocal interfaces for Windows builds
 const char * sysLanguageNames[] = {
@@ -2110,6 +2112,33 @@ bool Sys_CompareNetAdrBase( const netadr_t& a, const netadr_t& b ) {
 
 int Sys_GetLocalIPCount() { return 1; }
 const char *Sys_GetLocalIP( int i ) { return i == 0 ? "127.0.0.1" : NULL; }
+
+int Sys_GetLocalSubnets( lanSubnet_t* out, int max ) {
+	if ( out == NULL || max <= 0 ) {
+		return 0;
+	}
+	SOCKET probe = socket( AF_INET, SOCK_DGRAM, IPPROTO_UDP );
+	if ( probe == INVALID_SOCKET ) {
+		return 0;
+	}
+	INTERFACE_INFO interfaces[ 32 ];
+	DWORD bytes = 0;
+	int count = 0;
+	if ( WSAIoctl( probe, SIO_GET_INTERFACE_LIST, NULL, 0, interfaces, sizeof( interfaces ), &bytes, NULL, NULL ) == 0 ) {
+		const int found = static_cast< int >( bytes / sizeof( INTERFACE_INFO ) );
+		for ( int i = 0; i < found && count < max; i++ ) {
+			const INTERFACE_INFO& entry = interfaces[ i ];
+			if ( ( entry.iiFlags & IFF_UP ) == 0 || ( entry.iiFlags & IFF_LOOPBACK ) != 0 || entry.iiAddress.Address.sa_family != AF_INET ) {
+				continue;
+			}
+			out[ count ].address = ntohl( entry.iiAddress.AddressIn.sin_addr.s_addr );
+			out[ count ].mask = ntohl( entry.iiNetmask.AddressIn.sin_addr.s_addr );
+			count++;
+		}
+	}
+	closesocket( probe );
+	return count;
+}
 
 void Sys_InitNetworking() {
 	if ( networkingInitialized ) {

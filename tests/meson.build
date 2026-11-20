@@ -61,6 +61,17 @@ server_query_test = executable(
 )
 test('server-query', server_query_test, suite: 'unit', timeout: 30)
 
+# the LAN search's subnet arithmetic and sweep order
+lan_discovery_test = executable(
+  'openetqw-lan-discovery-test',
+  files('LanDiscoveryTest.cpp'),
+  include_directories: test_include_dirs,
+  dependencies: test_deps,
+  link_args: test_link_args,
+  install: false,
+)
+test('lan-discovery', lan_discovery_test, suite: 'unit', timeout: 30)
+
 # 2. UserCmd delta serialization & sequence test
 usercmd_test_src = files(
   'UserCmdDeltaTest.cpp',

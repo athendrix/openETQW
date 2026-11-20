@@ -6,6 +6,8 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <ifaddrs.h>
+#include <net/if.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <errno.h>
@@ -14,6 +16,7 @@
 
 #include "idlib/precompiled.h"
 #include "posix_public.h"
+#include "../LocalSubnets.h"
 
 idCVar net_ip( "net_ip", "localhost", CVAR_SYSTEM, "local IP address" );
 idCVar net_port( "net_port", "0", CVAR_SYSTEM | CVAR_INTEGER, "local IP port number" );
@@ -426,6 +429,27 @@ const char *Sys_GetLocalIP( int i ) {
 		return s;
 	}
 	return "127.0.0.1";
+}
+
+int Sys_GetLocalSubnets( lanSubnet_t* out, int max ) {
+	struct ifaddrs* list = NULL;
+	if ( out == NULL || max <= 0 || getifaddrs( &list ) != 0 ) {
+		return 0;
+	}
+	int count = 0;
+	for ( struct ifaddrs* entry = list; entry != NULL && count < max; entry = entry->ifa_next ) {
+		if ( entry->ifa_addr == NULL || entry->ifa_netmask == NULL || entry->ifa_addr->sa_family != AF_INET ) {
+			continue;
+		}
+		if ( ( entry->ifa_flags & IFF_UP ) == 0 || ( entry->ifa_flags & IFF_LOOPBACK ) != 0 ) {
+			continue;
+		}
+		out[ count ].address = ntohl( reinterpret_cast< const struct sockaddr_in* >( entry->ifa_addr )->sin_addr.s_addr );
+		out[ count ].mask = ntohl( reinterpret_cast< const struct sockaddr_in* >( entry->ifa_netmask )->sin_addr.s_addr );
+		count++;
+	}
+	freeifaddrs( list );
+	return count;
 }
 
 void Sys_InitNetworking( void ) {

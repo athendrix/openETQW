@@ -30,5 +30,6 @@ void	SDNet_BrowserFreeTask( sdNetTask* task );
 void	SDNet_BrowserShutdown( void );
 void	SDNet_BrowserRegisterCommands( void );
 void	SDNet_BrowserServerJoined( const netadr_t& address );	// a connect was accepted
+bool	SDNet_BrowserLanServerSeen( void );	// a server on the LAN has answered since the game started
 
 #endif /* !__SDNET_SDNETBROWSER_H__ */

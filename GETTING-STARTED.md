@@ -149,7 +149,11 @@ answers the menu's server browser. Players add the server to their list once wit
 **From the menu:** open the server browser.
 
 - **LAN** finds servers on your local network by itself (and also lists your saved
-  servers).
+  servers). It broadcasts to UDP 27733 and, because some networks (guest Wi-Fi, some
+  VPNs) drop broadcasts, also asks each address of your private subnets in turn, slowly
+  (50 a second, starting when the game starts), so a server found that way shows up a
+  little later. `net_lanSweepRate 0` turns the sweep off; `net_lanScanAtStart 0` waits
+  for the LAN tab.
 - **Internet** lists the servers in your server list. There is no master server, so you
   add a server once, in the console (the key above Tab):
 
