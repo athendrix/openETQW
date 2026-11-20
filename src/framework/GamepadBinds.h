@@ -12,8 +12,11 @@ defaultbinds.cfg) changes a few buttons in every vehicle seat; anything it leave
 falls back to the default context (idGameLocal::Translate). The pad's key names are in
 src/sys/sdl/GamepadMapping.h; Start opens the menu (in_gamepadStartIsEscape).
 
-The bank numbers are retail's (defaultbinds.cfg): _weapon0 melee, 1 one-handed, 2
-two-handed, 3 grenades, 4 tools, 5 items. The underscore actions not in retail are the
+The layout is Destiny 2's controller defaults (LB grenade, RB melee, LB + RB super, B
+crouch and held class ability, Y swap and held heavy, X reload and held interact), and
+the keyboard follows it (Q, C, F, V, 1-3). The bank numbers are retail's
+(defaultbinds.cfg): _weapon0 melee, 1 one-handed, 2 two-handed, 3 grenades, 4 tools,
+5 items, 6 binoculars; with in_gunsOnly only 1 and 2 are selected by a key. The underscore actions not in retail are the
 game module's (GamepadControls.cpp).
 
 A profile with no pad bindings gets GAMEPAD_DEFAULT_BINDS (bindGamepadDefaults binds it
@@ -32,14 +35,14 @@ static const char* const GAMEPAD_DEFAULT_BINDS =
 	"bind joy1_right_trigger \"_padfire\"\n"		// fire
 	"bind joy1_left_trigger \"_zoomhold\"\n"		// hold to aim down sights or scope
 	"bind joy1_1 \"_moveUp\"\n"						// A: jump
-	"bind joy1_2 \"_crouchprone\"\n"				// B: tap crouch, hold prone
+	"bind joy1_2 \"_crouchprone\"\n"				// B: tap crouch, hold the class ability (deploy tool)
 	"bind joy1_3 \"_reloaduse\"\n"					// X: tap reload, hold use / enter vehicle
-	"bind joy1_4 \"_swapweapon\"\n"					// Y: tap next weapon, hold items
-	"bind joy1_5 \"_quickgrenade\"\n"				// LB: grenade, hold to cook
-	"bind joy1_6 \"_quicktool\"\n"				// RB: the class tool while held, then back to the gun
+	"bind joy1_4 \"_swapweapon\"\n"					// Y: tap swap guns, hold the heavy (binoculars, artillery)
+	"bind joy1_5 \"_quickgrenade\"\n"				// LB: grenade, hold to cook; LB + RB: super (the item)
+	"bind joy1_6 \"_quickmelee\"\n"				// RB: melee; LB + RB: super, held for the second item
 	"bind joy1_7 \"_showScores\"\n"					// view: scoreboard, and the second layer
 	"bind joy1_9 \"_padsprint\"\n"					// left stick click: sprint
-	"bind joy1_10 \"_quickmelee\"\n"				// right stick click: melee
+	"bind joy1_10 \"_prone\"\n"					// right stick click: prone (Destiny has none)
 	"bind joy1_dpad_up \"_quickchat\"\n"			// quick chat
 	"bind joy1_dpad_down \"_commandmap\"\n"			// command map
 	"bind joy1_dpad_left \"_limbomenu\"\n"			// team and class
@@ -67,11 +70,18 @@ static const char* const GAMEPAD_DEFAULT_BINDS =
 
 static const char* const DESTINY_KEYBOARD_BINDS =
 	"bind CTRL \"_movedown\"\n"						// crouch
-	"bind c \"_quickmelee\"\n"						// melee
-	"bind q \"_quickgrenade\"\n"					// grenade, hold to cook
+	"bind c \"_quickmelee\"\n"						// melee (RB)
+	"bind q \"_quickgrenade\"\n"					// grenade, hold to cook (LB)
 	"bind e \"_interact\"\n"						// interact: use, enter; in a vehicle tap switches seat, hold gets out
-	"bind v \"_quicktool\"\n"						// class ability: the tool while held, then back to the gun
-	"bind f \"_quickitem\"\n"						// super: the item while held, then back to the gun
+	"bind v \"_quicktool\"\n"						// class ability (B held): the deploy tool on and off, else the tool while held
+	"bind f \"_quickitem\"\n"						// super (LB + RB): a press the first item, a long press the second
+	"bind 1 \"_weapon2\"\n"						// the primary
+	"bind 2 \"_weapon1\"\n"						// the sidearm
+	"bind 3 \"_heavy\"\n"							// the heavy: binoculars (Y held)
+	"unbind 4\n"
+	"unbind 5\n"
+	"unbind 6\n"
+	"unbind 7\n"
 	"bind SHIFT \"_padsprint\"\n"					// sprint: a press runs until you stop moving forward
 	"bind MOUSE2 \"_zoomhold\"\n"					// hold to aim
 	"bind ALT \"_speed\"\n"							// walk, vehicle handbrake (retail Ctrl)

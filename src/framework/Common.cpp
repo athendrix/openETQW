@@ -81,7 +81,7 @@ static versionString_t versionString;
 
 // the Destiny layout's version: 2 added quick tool and item (V, F, RB) and sprint until
 // you stop (Shift); a saved profile with an older one gets the new keys once
-static const int DESTINY_LAYOUT_VERSION = 2;
+static const int DESTINY_LAYOUT_VERSION = 3;
 idCVar com_destinyLayout( "com_destinyLayout", "0", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_INTEGER | CVAR_NOCHEAT, "the version of the Destiny control layout this profile has (the engine updates the bindings when it is older)" );
 idCVar com_version( "si_version", versionString.string, CVAR_SYSTEM | CVAR_ROM | CVAR_SERVERINFO, "engine version" );
 // the openETQW build (tools/build/openetqw_version.py); si_version keeps the

@@ -17,13 +17,14 @@ has: no back paddles, touchpad or gyro. `bindGamepadDefaults` binds it again.
 | Left stick | Move | | Steer (driver) |
 | Right stick | Look | | Look |
 | Left stick click | Sprint, until the stick comes back | | Boost (held) |
-| Right stick click | Melee (one swing, then back to your weapon) | | Tophat controls |
+| Right stick click | Prone (tap B to stand) | | Tophat controls |
 | A | Jump | Vote yes | |
-| B | Tap: crouch (stays down until B, jump or sprint). Hold: prone (tap again to stand) | Vote no | Handbrake |
+| B | Tap: crouch (stays down until B, jump or sprint). Hold: class ability (the deploy tool on and off; other classes hold their tool) | Vote no | Handbrake |
 | X | Tap: reload. Hold: use, enter a vehicle, arm or disarm | Activate: switch item, launch decoys | Tap: switch seat or launch decoys. Hold: get out |
-| Y | Tap: swap guns. Hold: the item while held (`_quickitem`) | Binoculars | Vehicle camera |
+| Y | Tap: swap guns. Hold: heavy, the binoculars (Field Ops and Oppressor aim artillery with them) | Binoculars | Vehicle camera |
 | LB | Grenade: hold to cook, release to throw, then back to your weapon | | Alt-fire |
-| RB | Class tool while held, then back to the gun (`_quicktool`) | | Fire |
+| LB + RB | Super: the first item; held, the second (see below) | | |
+| RB | Melee: one strike, then back to your weapon | | Fire |
 | D-pad up | Quick chat | Context requests | |
 | D-pad down | Command map | Vote menu | |
 | D-pad left | Team and class | Fireteam | |
@@ -51,8 +52,9 @@ layout gets the changed keys once, `com_destinyLayout`):
 | C | Melee: switches, strikes once, switches back | Crouch |
 | Ctrl | Crouch | Walk / handbrake |
 | Alt | Walk / handbrake | |
-| V | Class tool: switches, uses it while held (hack, arm, place), switches back | Context requests |
-| F | Item: switches, uses it while held, switches back | Activate |
+| V | Class ability (B held): the deploy tool on and off; other classes hold their tool | Context requests |
+| F | Super (LB + RB): a press uses the first item, a long press the second | Activate |
+| 1, 2, 3 | Primary, sidearm, heavy (binoculars); the wheel swaps guns | Weapon banks |
 | Shift | Sprint: a press runs until you stop moving forward | Sprint (held) |
 | G | Context requests | Enter / exit vehicle |
 | Right mouse | Hold to aim | Alt-fire (toggle) |
@@ -60,6 +62,15 @@ layout gets the changed keys once, `com_destinyLayout`):
 
 In vehicles Q and E strafe the Desecrator, F switches seat or launches decoys and G
 gets out, as in retail. Lean on foot is left unbound. The rest is retail's.
+
+Only the guns are ever "equipped". The super uses the class's items: a press the first
+(Medic health pack, Field Ops ammo pack, Covert Ops third eye, Oppressor force shield,
+Infiltrator flyer drone, Soldier and Aggressor charges, mines, Stroyent cells), a long
+press the second (supply-crate marker, airstrike markers, smoke, teleporter). A placed
+third eye: a press looks through it; while looking through it or flying the drone, a
+press leaves the view (recalls the drone) and a long press detonates it. The class
+ability brings the deploy tool out until you place something or press it again. Repair,
+hack, arm, disarm and revive happen by using the thing (X held, or E).
 
 The quick actions (grenade, melee, tool, item) leave you on your gun unless the key is
 held. With `in_gunsOnly 1` (the default) the weapon keys, the wheel and next/previous
