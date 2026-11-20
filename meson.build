@@ -537,7 +537,8 @@ install_data(
   'src' / 'imgui' / 'LICENSE.txt',
   'src' / 'recast' / 'License.txt',
   'LICENSES' / 'third-party' / 'minizip.txt',
-  rename: ['imgui.txt', 'recastnavigation.txt', 'minizip.txt'],
+  'LICENSES' / 'third-party' / 'tweetnacl.txt',
+  rename: ['imgui.txt', 'recastnavigation.txt', 'minizip.txt', 'tweetnacl.txt'],
   install_dir: install_root / 'licenses' / 'openETQW' / 'third-party',
 )
 if game_repo_root != ''

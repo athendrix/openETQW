@@ -40,6 +40,9 @@ COMMON_FRAMEWORK_SOURCES = (
     "src/framework/file_inzip.cpp",
     "src/framework/minizip/ioapi.c",
     "src/framework/minizip/unzip.c",
+    # Ed25519 for server identity (src/libs/tweetnacl/README.md)
+    "src/libs/tweetnacl/tweetnacl.c",
+    "src/framework/async/ServerIdentity.cpp",
     "src/libs/filelib/File.cpp",
     "src/sys/sys_input.cpp",
     "src/renderer/Image_files.cpp",

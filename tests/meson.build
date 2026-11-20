@@ -72,6 +72,19 @@ lan_discovery_test = executable(
 )
 test('lan-discovery', lan_discovery_test, suite: 'unit', timeout: 30)
 
+# server identity: Ed25519 (RFC 8032 vectors) and the signed info answer
+server_identity_test = executable(
+  'openetqw-server-identity-test',
+  files('ServerIdentityTest.cpp',
+    meson.project_source_root() / 'src' / 'framework' / 'async' / 'ServerIdentity.cpp',
+    meson.project_source_root() / 'src' / 'libs' / 'tweetnacl' / 'tweetnacl.c'),
+  include_directories: test_include_dirs,
+  dependencies: test_deps,
+  link_args: test_link_args,
+  install: false,
+)
+test('server-identity', server_identity_test, suite: 'unit', timeout: 30)
+
 # 2. UserCmd delta serialization & sequence test
 usercmd_test_src = files(
   'UserCmdDeltaTest.cpp',

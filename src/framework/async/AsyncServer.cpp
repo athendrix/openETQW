@@ -13,6 +13,8 @@
 #include "sdnet/SDNet.h"
 #include "AllowFailureReason.h"
 #include "ServerQuery.h"
+#include "ServerIdentity.h"
+#include "../../sys/LocalSubnets.h"
 
 // a connect challenge is good this long after it was handed out
 static const int CHALLENGE_LIFETIME_MSEC = 10000;
@@ -1766,7 +1768,140 @@ settings (its serverinfo CVars, the keys the browser shows first) and its player
 idCVar net_serverAnswerQueries( "net_serverAnswerQueries", "1", CVAR_SYSTEM | CVAR_BOOL | CVAR_NOCHEAT, "answer server browser queries (the menu's server list)" );
 idCVar net_serverQueryDifficulty( "net_serverQueryDifficulty", "16", CVAR_SYSTEM | CVAR_INTEGER | CVAR_NOCHEAT, "the server browser's proof of work, in leading zero bits of SHA-256 (each bit doubles a client's work); raised while flooded", SQ_MIN_DIFFICULTY, SQ_MAX_DIFFICULTY );
 
+idCVar net_serverPublicAddress( "net_serverPublicAddress", "", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_NOCHEAT, "the addresses players outside the LAN reach this server at (IPv4 or host name, with :port when not net_port), separated by spaces; the server browser lists them in the server's signed answer, so players who saved the server find it again at them" );
+
 namespace {
+
+const char SERVER_KEY_FILE[]			= "serverkey.dat";
+const int SERVER_ADDRESSES_REFRESH_MSEC	= 60 * 1000;
+
+/*
+The server's identity (ServerIdentity.h): a 32-byte seed in the save path, made the first
+time it is needed. Losing the file gives the server a new identity, so players' saved
+copies no longer follow it to a new address.
+*/
+const sqIdentity_t& ServerIdentity() {
+	static sqIdentity_t identity;
+	static bool loaded = false;
+	if ( loaded ) {
+		return identity;
+	}
+	loaded = true;
+	memset( &identity, 0, sizeof( identity ) );
+	uint8_t seed[ SQ_ID_SEED_SIZE ];
+	bool haveSeed = false;
+	idFile* file = fileSystem->OpenFileRead( SERVER_KEY_FILE );
+	if ( file != NULL ) {
+		haveSeed = file->Length() == SQ_ID_SEED_SIZE && file->Read( seed, SQ_ID_SEED_SIZE ) == SQ_ID_SEED_SIZE;
+		fileSystem->CloseFile( file );
+		if ( !haveSeed ) {
+			common->Warning( "%s is not a server key; making a new one", SERVER_KEY_FILE );
+		}
+	}
+	if ( !haveSeed ) {
+		for ( int i = 0; i < SQ_ID_SEED_SIZE; i += 4 ) {
+			const uint32_t value = Sys_SecureRandom32();
+			memcpy( seed + i, &value, 4 );
+		}
+		idFile* out = fileSystem->OpenFileWrite( SERVER_KEY_FILE );
+		if ( out == NULL || out->Write( seed, SQ_ID_SEED_SIZE ) != SQ_ID_SEED_SIZE ) {
+			common->Warning( "couldn't save %s: this server's identity lasts until it stops", SERVER_KEY_FILE );
+		}
+		if ( out != NULL ) {
+			fileSystem->CloseFile( out );
+		}
+	}
+	SQ_IdentityFromSeed( seed, identity );
+	memset( seed, 0, sizeof( seed ) );
+	if ( identity.valid ) {
+		char id[ SQ_ID_PUBLIC_SIZE * 2 + 1 ];
+		SQ_HexEncode( identity.publicKey, SQ_ID_PUBLIC_SIZE, id );
+		common->Printf( "server identity %s\n", id );
+	}
+	return identity;
+}
+
+// appends "a.b.c.d:port" to the list when it fits and is not there yet
+void AppendQueryAddress( idStr& list, const netadr_t& address ) {
+	if ( address.type != NA_IP ) {
+		return;
+	}
+	const idStr text = va( "%d.%d.%d.%d:%d", address.ip[ 0 ], address.ip[ 1 ], address.ip[ 2 ], address.ip[ 3 ], address.port );
+	idStr padded = va( " %s ", list.c_str() );
+	if ( padded.Find( va( " %s ", text.c_str() ) ) >= 0 ) {
+		return;
+	}
+	if ( list.Length() + 1 + text.Length() > SQ_ID_MAX_ADDRESSES_LENGTH ) {
+		return;
+	}
+	if ( list.Length() > 0 ) {
+		list += " ";
+	}
+	list += text;
+}
+
+/*
+The addresses the server's answer lists (si_addrs): net_serverPublicAddress, resolved
+here so a client never has to look up a name a server sent it, then the server's private
+LAN addresses. Rebuilt every minute (a name's address can change) and when the cvar does.
+*/
+const char* QueryAddresses( int serverPortNumber ) {
+	static idStr addresses;
+	static int built = 0;
+	static int builtPort = -1;
+	const int now = Sys_Milliseconds();
+	if ( builtPort == serverPortNumber && !net_serverPublicAddress.IsModified() && now - built < SERVER_ADDRESSES_REFRESH_MSEC ) {
+		return addresses.c_str();
+	}
+	net_serverPublicAddress.ClearModified();
+	built = now;
+	builtPort = serverPortNumber;
+	addresses.Clear();
+
+	idStrList entries;
+	idStr entry;
+	for ( const char* c = net_serverPublicAddress.GetString(); ; c++ ) {
+		if ( *c == '\0' || *c == ' ' || *c == '\t' || *c == ',' ) {
+			if ( entry.Length() > 0 ) {
+				entries.Append( entry );
+				entry.Clear();
+			}
+			if ( *c == '\0' ) {
+				break;
+			}
+		} else {
+			entry += *c;
+		}
+	}
+	for ( int i = 0; i < entries.Num(); i++ ) {
+		netadr_t address;
+		if ( !Sys_StringToNetAdr( entries[ i ].c_str(), &address, true ) || address.type != NA_IP ) {
+			common->Warning( "net_serverPublicAddress: can't resolve '%s'", entries[ i ].c_str() );
+			continue;
+		}
+		if ( address.port == 0 ) {
+			address.port = static_cast< unsigned short >( serverPortNumber );
+		}
+		AppendQueryAddress( addresses, address );
+	}
+	lanSubnet_t subnets[ 16 ];
+	const int numSubnets = Sys_GetLocalSubnets( subnets, 16 );
+	for ( int i = 0; i < numSubnets; i++ ) {
+		if ( !LAN_IsPrivate( subnets[ i ].address ) ) {
+			continue;
+		}
+		netadr_t address;
+		memset( &address, 0, sizeof( address ) );
+		address.type = NA_IP;
+		address.ip[ 0 ] = static_cast< byte >( subnets[ i ].address >> 24 );
+		address.ip[ 1 ] = static_cast< byte >( subnets[ i ].address >> 16 );
+		address.ip[ 2 ] = static_cast< byte >( subnets[ i ].address >> 8 );
+		address.ip[ 3 ] = static_cast< byte >( subnets[ i ].address );
+		address.port = static_cast< unsigned short >( serverPortNumber );
+		AppendQueryAddress( addresses, address );
+	}
+	return addresses.c_str();
+}
 
 sqQueryGate* QueryGate() {
 	static sqQueryGate* gate = NULL;
@@ -1841,7 +1976,8 @@ void idAsyncServer::ProcessGetInfoMessage( const netadr_t from, const idBitMsg& 
 	}
 	sqChallenge_t challenge;
 	uint64_t work = 0;
-	if ( !SQ_ReadInfoRequest( msg, challenge, work ) || challenge.protocol != ASYNC_PROTOCOL_VERSION ) {
+	bool wantProof = false;
+	if ( !SQ_ReadInfoRequest( msg, challenge, work, &wantProof ) || challenge.protocol != ASYNC_PROTOCOL_VERSION ) {
 		return;
 	}
 	const int now = Sys_Milliseconds();
@@ -1853,6 +1989,22 @@ void idAsyncServer::ProcessGetInfoMessage( const netadr_t from, const idBitMsg& 
 	info->Clear();
 	info->protocol = ASYNC_PROTOCOL_VERSION;
 	info->nonce = challenge.nonce;
+
+	// who the server is and where it can be reached, first so they always fit; signed
+	// only when asked, and only so often (ServerIdentity.h)
+	const sqIdentity_t& identity = ServerIdentity();
+	if ( identity.valid ) {
+		static sqRateLimiter signLimiter( 0, SQ_IDENTITY_SIGNS_PER_SECOND );
+		char id[ SQ_ID_PUBLIC_SIZE * 2 + 1 ];
+		SQ_HexEncode( identity.publicKey, SQ_ID_PUBLIC_SIZE, id );
+		const char* addresses = QueryAddresses( serverPort.GetPort() );
+		info->AddKey( SQ_KEY_ID, id );
+		info->AddKey( SQ_KEY_ADDRESSES, addresses );
+		char signature[ SQ_ID_SIGNATURE_SIZE * 2 + 1 ];
+		if ( wantProof && signLimiter.Allow( QueryLimiterKey( address ), now ) && SQ_SignAnswer( identity, challenge.nonce, challenge.cookie, addresses, signature ) ) {
+			info->AddKey( SQ_KEY_SIGNATURE, signature );
+		}
+	}
 
 	// the keys the browser shows first, then the rest of the serverinfo
 	const idDict& serverInfo = sessLocal.mapSpawnData.serverInfo;

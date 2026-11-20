@@ -37,8 +37,8 @@ inline uint32_t LAN_DirectedBroadcast( const lanSubnet_t& subnet ) {
 
 inline bool LAN_IsPrivate( uint32_t address ) {
 	return ( address >> 24 ) == 10 ||
-		( address >> 20 ) == ( ( 172u << 4 ) | 1u ) ||		// 172.16.0.0/12
-		( address >> 16 ) == ( ( 192u << 8 ) | 168u );		// 192.168.0.0/16
+		( address >> 20 ) == ( ( 172u << 4 ) | 1u ) ||		// 172.16/12
+		( address >> 16 ) == ( ( 192u << 8 ) | 168u );		// 192.168/16
 }
 
 // a netmask is contiguous ones then zeros

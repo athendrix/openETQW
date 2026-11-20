@@ -11,7 +11,8 @@ starts with short -1 (connectionless) and a command string.
   2. server  "infoChallenge"     long protocol, long nonce, long issued, byte difficulty,
                                  SQ_COOKIE_SIZE bytes cookie
   3. client  "getInfo"           long protocol, long nonce, long issued, byte difficulty,
-                                 cookie, 8 bytes work
+                                 cookie, 8 bytes work, and optionally byte 1: prove the
+                                 server's identity (ServerIdentity.h)
   4. server  "infoResponse"      long protocol, long nonce, short key count, each key and
                                  value as strings, byte player count, each player's name
                                  (string), ping (short) and bot flag (byte), then the
@@ -197,21 +198,28 @@ inline bool SQ_ReadChallenge( const idBitMsg& msg, sqChallenge_t& challenge ) {
 }
 
 // step 3
-inline void SQ_WriteInfoRequest( idBitMsg& msg, const sqChallenge_t& challenge, uint64_t work ) {
+inline void SQ_WriteInfoRequest( idBitMsg& msg, const sqChallenge_t& challenge, uint64_t work, bool wantProof = false ) {
 	msg.WriteShort( -1 );
 	msg.WriteString( SQ_REQUEST );
 	SQ_WriteChallengeFields( msg, challenge );
 	msg.WriteLong( static_cast< int >( work >> 32 ) );
 	msg.WriteLong( static_cast< int >( work & 0xffffffffu ) );
+	if ( wantProof ) {
+		msg.WriteByte( 1 );
+	}
 }
 
-inline bool SQ_ReadInfoRequest( const idBitMsg& msg, sqChallenge_t& challenge, uint64_t& work ) {
+inline bool SQ_ReadInfoRequest( const idBitMsg& msg, sqChallenge_t& challenge, uint64_t& work, bool* wantProof = NULL ) {
 	if ( !SQ_ReadChallengeFields( msg, challenge ) || msg.GetRemainingData() < 8 ) {
 		return false;
 	}
 	const uint32_t high = static_cast< uint32_t >( msg.ReadLong() );
 	const uint32_t low = static_cast< uint32_t >( msg.ReadLong() );
 	work = ( static_cast< uint64_t >( high ) << 32 ) | low;
+	const bool proof = msg.GetRemainingData() >= 1 && msg.ReadByte() == 1;
+	if ( wantProof != NULL ) {
+		*wantProof = proof;
+	}
 	return true;
 }
 

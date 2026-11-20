@@ -1,0 +1,5 @@
+TweetNaCl (src/libs/tweetnacl/tweetnacl.c, tweetnacl.h), version 20140427, by
+Daniel J. Bernstein, Bernard van Gastel, Wesselin Janssen, Tanja Lange,
+Peter Schwabe and Sjaak Smetsers.
+
+TweetNaCl is public domain: https://tweetnacl.cr.yp.to/

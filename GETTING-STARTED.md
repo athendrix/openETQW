@@ -144,6 +144,18 @@ for players outside your LAN, forward it on your router to the server. The same 
 answers the menu's server browser. Players add the server to their list once with
 `addServer` (section 5).
 
+**Its identity:** the server makes a key the first time it answers the browser and keeps
+it in `serverkey.dat` in its save path (keep that file when you move the server). Players
+who starred the server find it again by that key on the LAN, at its public address, and
+after its address changes. Tell it the address players outside your LAN use:
+
+```
+set net_serverPublicAddress "203.0.113.7"
+```
+
+(a host name works too, and `:port` when it is not `net_port`; several separated by
+spaces). The server lists it, with its LAN addresses, in the answer it signs.
+
 ## 5. Joining
 
 **From the menu:** open the server browser.
@@ -164,7 +176,10 @@ answers the menu's server browser. Players add the server to their list once wit
   `addServer host:port` for a server not on port 27733; `removeServer` and `serverList`
   edit and show the list. It is saved with your settings.
 - **History** lists the last ten servers you joined, and **Favorites** the ones you
-  starred. Both are saved too.
+  starred. Both are saved too. A starred server is remembered by its identity with all
+  the addresses it has been seen at, so it is found on the LAN and over the Internet,
+  and again after its address changes (when it lists its new address, or you see it at
+  the new address in another tab).
 
 Pick a server and join. For a server with a password, set it in the console first
 (`set password changeme`); the retail menu's password prompt has not been tried yet.

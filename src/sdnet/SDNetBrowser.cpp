@@ -23,6 +23,15 @@ sweeps its private subnets host by host on the server port, slowly (net_lanSweep
 packets a second, at most net_lanSweepMaxHosts hosts; LanDiscovery.h), and keeps the
 servers that answer. A LAN search after the sweep has ended starts it again.
 
+Servers have an identity (ServerIdentity.h). The browser asks the History and Favorites
+tabs' servers to prove theirs, and keeps, in the profile, the addresses each saved server
+has been found at (serverAddresses_<identity>: the address it answered at when the
+signed si_addrs lists it or it is on the LAN, then si_addrs). A favorite is saved as
+favorite_<address> = "1 <identity>". When a saved server does not answer at its address,
+its other addresses are tried; one that proves the same identity takes the favorite and
+the history entry over. A server in the LAN or Internet tab whose unproven si_id is a
+favorite's is asked for proof, so its address is learnt too.
+
 Everything runs on the main thread: the game's UI calls in and the engine's frame calls
 SDNet_BrowserFrame, so the tasks' locks have nothing to guard.
 */
@@ -38,6 +47,7 @@ SDNet_BrowserFrame, so the tasks' locks have nothing to guard.
 #include "SDNetTask.h"
 #include "../framework/async/AsyncNetwork.h"
 #include "../framework/async/ServerQuery.h"
+#include "../framework/async/ServerIdentity.h"
 #include "SDNetBrowser.h"
 #include "LanDiscovery.h"
 #include "../sys/LocalSubnets.h"
@@ -66,10 +76,20 @@ const int BROWSER_NO_PING			= 999;		// what the game shows as no answer
 const int LAN_RESWEEP_MSEC			= 5 * 60 * 1000;	// a LAN search sweeps again once the last sweep is this old
 const int LAN_MAX_SUBNETS			= 16;
 const int LAN_MAX_SERVERS			= 64;		// servers the sweeps and broadcasts have found
+const int BOOK_MAX_ADDRESSES		= 8;		// addresses kept for a saved server
+const int BOOK_MAX_SERVERS			= 64;
+const char BOOK_PREFIX[]			= "serverAddresses_";
+const char FAVORITE_PREFIX[]		= "favorite_";
 
 class sdNetSessionBrowser : public sdNetSession {
 public:
 	sdNetSessionBrowser( const netadr_t& address ) : address( address ), ping( BROWSER_NO_PING ), numBots( 0 ), gameState( 0 ), timeLeft( 0 ) {
+		addressString = Sys_NetAdrToString( address );
+	}
+
+	// the server answered at another of its addresses
+	void SetAddress( const netadr_t& newAddress ) {
+		address = newAddress;
 		addressString = Sys_NetAdrToString( address );
 	}
 
@@ -279,6 +299,10 @@ struct query_t {
 	queryStage_t			stage;
 	sqChallenge_t			challenge;
 	uint64_t				work;
+	bool					wantProof;	// ask the server to prove its identity
+	bool					fallback;	// another address of a saved server that did not answer
+	char					identity[ SQ_ID_PUBLIC_SIZE * 2 + 1 ];	// a fallback's: the identity it must prove
+	netadr_t				original;	// a fallback's: the address that did not answer
 };
 
 class sdServerBrowser {
@@ -353,7 +377,7 @@ public:
 		for ( int i = 0; i < sessions.Num(); i++ ) {
 			sdNetSessionBrowser* session = static_cast< sdNetSessionBrowser* >( sessions[ i ] );
 			if ( session != NULL && session->GetAddress().type == NA_IP ) {
-				AddQuery( task, session, session->GetAddress(), false );
+				AddQuery( task, session, session->GetAddress(), false, true );
 				asked++;
 			}
 		}
@@ -395,6 +419,9 @@ public:
 			if ( query.tries >= BROWSER_TRIES ) {
 				if ( !query.broadcast ) {
 					query.stage = QS_DONE;
+					if ( query.session != NULL && !query.fallback ) {
+						TryOtherAddresses( query, now );	// may add queries; query is not used after this
+					}
 				}
 				continue;
 			}
@@ -519,9 +546,11 @@ private:
 		return query;
 	}
 
-	void AddQuery( sdNetTaskBrowser* task, sdNetSessionBrowser* session, const netadr_t& address, bool broadcast ) {
+	query_t& AddQuery( sdNetTaskBrowser* task, sdNetSessionBrowser* session, const netadr_t& address, bool broadcast, bool wantProof = false ) {
 		query_t& query = NewQuery( task, session, address, broadcast, nextNonce++ & 0x7fffffff );
+		query.wantProof = wantProof;
 		SendChallengeRequest( query, Sys_Milliseconds() );
+		return query;
 	}
 
 	// a query for a server, unless the task already has one for it
@@ -677,6 +706,273 @@ private:
 		}
 	}
 
+	/*
+	The saved servers' addresses (the module comment). The profile is the active user's;
+	without one nothing is kept.
+	*/
+	static idDict* Properties() {
+		if ( networkService == NULL || networkService->GetActiveUser() == NULL ) {
+			return NULL;
+		}
+		return &networkService->GetActiveUser()->GetProfile().GetProperties();
+	}
+
+	static void SaveProfile() {
+		if ( networkService != NULL && networkService->GetActiveUser() != NULL ) {
+			networkService->GetActiveUser()->Save( sdNetUser::SI_PROFILE );
+		}
+	}
+
+	// the identity in a favorite's value ("1 <identity>"), or ""
+	static idStr ValueIdentity( const char* value ) {
+		const char* space = strchr( value, ' ' );
+		return space != NULL ? idStr( space + 1 ) : idStr();
+	}
+
+	static bool IsFavoriteIdentity( const char* identity ) {
+		const idDict* properties = Properties();
+		if ( properties == NULL || identity == NULL || identity[ 0 ] == '\0' ) {
+			return false;
+		}
+		for ( const idKeyValue* kv = properties->MatchPrefix( FAVORITE_PREFIX ); kv != NULL; kv = properties->MatchPrefix( FAVORITE_PREFIX, kv ) ) {
+			if ( ValueIdentity( kv->GetValue().c_str() ).Icmp( identity ) == 0 ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	static bool IsHistoryAddress( const idDict& properties, const char* address ) {
+		for ( int i = 0; i < sdNetUser::MAX_SERVER_HISTORY; i++ ) {
+			if ( idStr::Icmp( properties.GetString( va( "serverHistory%i", i ), "" ), address ) == 0 ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	// si_addrs, parsed: numeric IPv4 host:port only (a server's answer never makes the
+	// client look a name up)
+	static void ParseAddresses( const char* text, idList< netadr_t >& out ) {
+		idStrList entries;
+		SplitList( text != NULL ? text : "", entries );
+		for ( int i = 0; i < entries.Num() && out.Num() < BOOK_MAX_ADDRESSES; i++ ) {
+			netadr_t adr;
+			if ( !IsNumericAddress( entries[ i ].c_str() ) || !Sys_StringToNetAdr( entries[ i ].c_str(), &adr, false ) || adr.type != NA_IP || adr.port == 0 ) {
+				continue;
+			}
+			out.Append( adr );
+		}
+	}
+
+	static bool IsNumericAddress( const char* text ) {
+		for ( const char* c = text; *c != '\0'; c++ ) {
+			if ( !( ( *c >= '0' && *c <= '9' ) || *c == '.' || *c == ':' ) ) {
+				return false;
+			}
+		}
+		return text[ 0 ] != '\0';
+	}
+
+	// an address answering for an identity is taken as the server's when the server's
+	// signed addresses list it, or it is on the LAN (ServerIdentity.h: relays)
+	static bool AcceptedAddress( const netadr_t& from, const char* addresses ) {
+		if ( Sys_IsLANAddress( from ) ) {
+			return true;
+		}
+		idList< netadr_t > listed;
+		ParseAddresses( addresses, listed );
+		for ( int i = 0; i < listed.Num(); i++ ) {
+			if ( SameAddress( listed[ i ], from ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/*
+	A proven answer: for a saved server (a favorite's identity, or an address in the
+	history or the favorites), keep where it was found, and put the identity in its
+	favorite's value.
+	*/
+	void LearnAddresses( const netadr_t& from, const char* identity, const char* addresses ) {
+		idDict* properties = Properties();
+		if ( properties == NULL ) {
+			return;
+		}
+		const idStr fromString = Sys_NetAdrToString( from );
+		const idStr favoriteKey = idStr( FAVORITE_PREFIX ) + fromString;
+		const bool favoriteHere = properties->GetBool( favoriteKey.c_str(), "0" );
+		if ( !favoriteHere && !IsFavoriteIdentity( identity ) && !IsHistoryAddress( *properties, fromString.c_str() ) ) {
+			return;
+		}
+		bool changed = false;
+		if ( favoriteHere && ValueIdentity( properties->GetString( favoriteKey.c_str() ) ).Icmp( identity ) != 0 ) {
+			properties->Set( favoriteKey.c_str(), va( "1 %s", identity ) );
+			changed = true;
+		}
+
+		// the addresses, newest first: where it answered (when accepted), what it listed,
+		// then what was known before
+		idList< netadr_t > book;
+		if ( AcceptedAddress( from, addresses ) ) {
+			book.Append( from );
+		}
+		idList< netadr_t > listed;
+		ParseAddresses( addresses, listed );
+		idList< netadr_t > known;
+		const idStr bookKey = idStr( BOOK_PREFIX ) + identity;
+		ParseAddresses( properties->GetString( bookKey.c_str(), "" ), known );
+		for ( int pass = 0; pass < 2; pass++ ) {
+			const idList< netadr_t >& source = pass == 0 ? listed : known;
+			for ( int i = 0; i < source.Num() && book.Num() < BOOK_MAX_ADDRESSES; i++ ) {
+				bool have = false;
+				for ( int j = 0; j < book.Num() && !have; j++ ) {
+					have = SameAddress( book[ j ], source[ i ] );
+				}
+				if ( !have ) {
+					book.Append( source[ i ] );
+				}
+			}
+		}
+		idStr text;
+		for ( int i = 0; i < book.Num(); i++ ) {
+			if ( i > 0 ) {
+				text += " ";
+			}
+			text += Sys_NetAdrToString( book[ i ] );
+		}
+		if ( idStr::Cmp( properties->GetString( bookKey.c_str(), "" ), text.c_str() ) != 0 ) {
+			properties->Set( bookKey.c_str(), text.c_str() );
+			changed = true;
+		}
+		changed = PruneBook( *properties ) || changed;
+		if ( changed ) {
+			SaveProfile();
+		}
+	}
+
+	// drops the addresses of servers no longer saved, and the oldest beyond BOOK_MAX_SERVERS
+	static bool PruneBook( idDict& properties ) {
+		bool changed = false;
+		int kept = 0;
+		for ( int i = properties.GetNumKeyVals() - 1; i >= 0; i-- ) {
+			const idKeyValue* kv = properties.GetKeyVal( i );
+			if ( kv->GetKey().Icmpn( BOOK_PREFIX, idStr::Length( BOOK_PREFIX ) ) != 0 ) {
+				continue;
+			}
+			const char* identity = kv->GetKey().c_str() + idStr::Length( BOOK_PREFIX );
+			bool saved = false;
+			for ( const idKeyValue* f = properties.MatchPrefix( FAVORITE_PREFIX ); f != NULL && !saved; f = properties.MatchPrefix( FAVORITE_PREFIX, f ) ) {
+				saved = ValueIdentity( f->GetValue().c_str() ).Icmp( identity ) == 0;
+			}
+			idList< netadr_t > addresses;
+			ParseAddresses( kv->GetValue().c_str(), addresses );
+			for ( int a = 0; a < addresses.Num() && !saved; a++ ) {
+				saved = IsHistoryAddress( properties, Sys_NetAdrToString( addresses[ a ] ) );
+			}
+			if ( !saved || kept >= BOOK_MAX_SERVERS ) {
+				properties.Delete( kv->GetKey().c_str() );
+				changed = true;
+			} else {
+				kept++;
+			}
+		}
+		return changed;
+	}
+
+	// the identity saved for an address: its favorite's, or the book's
+	static idStr SavedIdentity( const idDict& properties, const netadr_t& address ) {
+		const char* addressString = Sys_NetAdrToString( address );
+		idStr identity = ValueIdentity( properties.GetString( va( "%s%s", FAVORITE_PREFIX, addressString ), "" ) );
+		if ( identity.Length() > 0 ) {
+			return identity;
+		}
+		for ( const idKeyValue* kv = properties.MatchPrefix( BOOK_PREFIX ); kv != NULL; kv = properties.MatchPrefix( BOOK_PREFIX, kv ) ) {
+			idList< netadr_t > addresses;
+			ParseAddresses( kv->GetValue().c_str(), addresses );
+			for ( int i = 0; i < addresses.Num(); i++ ) {
+				if ( SameAddress( addresses[ i ], address ) ) {
+					return idStr( kv->GetKey().c_str() + idStr::Length( BOOK_PREFIX ) );
+				}
+			}
+		}
+		return idStr();
+	}
+
+	// a saved server did not answer: ask its other addresses, each to prove it is that server
+	void TryOtherAddresses( const query_t& failed, int now ) {
+		const idDict* properties = Properties();
+		if ( properties == NULL ) {
+			return;
+		}
+		const idStr identity = SavedIdentity( *properties, failed.address );
+		if ( identity.Length() != SQ_ID_PUBLIC_SIZE * 2 ) {
+			return;
+		}
+		idList< netadr_t > addresses;
+		ParseAddresses( properties->GetString( va( "%s%s", BOOK_PREFIX, identity.c_str() ), "" ), addresses );
+		// copies: AddQuery can move the query list
+		sdNetTaskBrowser* task = failed.task;
+		sdNetSessionBrowser* session = failed.session;
+		const netadr_t original = failed.address;
+		bool asked = false;
+		for ( int i = 0; i < addresses.Num(); i++ ) {
+			if ( SameAddress( addresses[ i ], original ) ) {
+				continue;
+			}
+			query_t& query = AddQuery( task, session, addresses[ i ], false, true );
+			query.fallback = true;
+			query.original = original;
+			idStr::Copynz( query.identity, identity.c_str(), sizeof( query.identity ) );
+			asked = true;
+		}
+		if ( asked ) {
+			task->deadline = Max( task->deadline, now + BROWSER_RESEND_MSEC * BROWSER_TRIES + 500 );
+		}
+	}
+
+	/*
+	A saved server proved itself at another address: its session, favorite and history
+	entry move there, and the session's other fallbacks stop.
+	*/
+	void FoundElsewhere( query_t& query, const netadr_t& from, const sqInfo_t& info, int ping ) {
+		sdNetSessionBrowser* session = query.session;
+		const netadr_t original = query.original;
+		const idStr identity = query.identity;
+		for ( int i = 0; i < queries.Num(); i++ ) {
+			if ( queries[ i ].session == session && queries[ i ].fallback ) {
+				if ( queries[ i ].stage == QS_SOLVING ) {
+					solver.Cancel( queries[ i ].id );
+				}
+				queries[ i ].stage = QS_DONE;
+			}
+		}
+		session->SetAddress( from );
+		session->Update( info, ping );
+
+		idDict* properties = Properties();
+		if ( properties == NULL ) {
+			return;
+		}
+		const idStr oldString = Sys_NetAdrToString( original );
+		const idStr newString = Sys_NetAdrToString( from );
+		const idStr oldKey = idStr( FAVORITE_PREFIX ) + oldString;
+		if ( properties->FindKey( oldKey.c_str() ) != NULL ) {
+			properties->Delete( oldKey.c_str() );
+			properties->Set( va( "%s%s", FAVORITE_PREFIX, newString.c_str() ), va( "1 %s", identity.c_str() ) );
+		}
+		for ( int i = 0; i < sdNetUser::MAX_SERVER_HISTORY; i++ ) {
+			const char* key = va( "serverHistory%i", i );
+			if ( idStr::Icmp( properties->GetString( key, "" ), oldString.c_str() ) == 0 ) {
+				properties->Set( key, newString.c_str() );
+			}
+		}
+		common->Printf( "server browser: %s is now at %s\n", oldString.c_str(), newString.c_str() );
+		LearnAddresses( from, identity.c_str(), info.FindValue( SQ_KEY_ADDRESSES ) );
+		SaveProfile();
+	}
+
 	void RemoveQuery( int index ) {
 		if ( queries[ index ].stage == QS_SOLVING ) {
 			solver.Cancel( queries[ index ].id );
@@ -700,7 +996,7 @@ private:
 		idBitMsg msg;
 		msg.InitWrite( buffer, sizeof( buffer ) );
 		msg.BeginWriting();
-		SQ_WriteInfoRequest( msg, query.challenge, query.work );
+		SQ_WriteInfoRequest( msg, query.challenge, query.work, query.wantProof );
 		port.SendPacket( query.address, msg.GetData(), msg.GetSize() );
 		query.lastSent = now;
 		query.stage = QS_INFO;
@@ -801,14 +1097,38 @@ private:
 			if ( query.nonce != info.nonce || query.stage != QS_INFO || query.broadcast || !SameAddress( from, query.address ) ) {
 				continue;
 			}
-			query.stage = QS_DONE;
 			const int ping = now - query.lastSent;
-			if ( query.session != NULL ) {
-				query.session->Update( info, ping );
+			const char* identity = info.FindValue( SQ_KEY_ID );
+			const char* addresses = info.FindValue( SQ_KEY_ADDRESSES );
+			const char* signature = info.FindValue( SQ_KEY_SIGNATURE );
+			const bool proven = query.wantProof && identity != NULL && addresses != NULL && signature != NULL &&
+				SQ_VerifyAnswer( identity, addresses, signature, query.nonce, query.challenge.cookie );
+
+			if ( query.fallback ) {
+				// only the saved server itself takes its favorite over
+				if ( !proven || idStr::Icmp( identity, query.identity ) != 0 || !AcceptedAddress( from, addresses ) ) {
+					query.stage = QS_DONE;
+					return;
+				}
+				FoundElsewhere( query, from, info, ping );
+				return;
+			}
+			query.stage = QS_DONE;
+			// copies: AddQuery can move the query list
+			sdNetTaskBrowser* task = query.task;
+			sdNetSessionBrowser* querySession = query.session;
+			if ( proven ) {
+				LearnAddresses( from, identity, addresses );
+			} else if ( identity != NULL && !query.wantProof && IsFavoriteIdentity( identity ) ) {
+				// a favorite at an address of its we may not know: ask it to prove that
+				AddQuery( task, querySession, from, false, true );
+			}
+			if ( querySession != NULL ) {
+				querySession->Update( info, ping );
 				return;
 			}
 			// a find: one session per server
-			idList< sdNetSession* >& list = *query.task->findList;
+			idList< sdNetSession* >& list = *task->findList;
 			sdNetSessionBrowser* session = NULL;
 			for ( int j = 0; j < list.Num(); j++ ) {
 				if ( SameAddress( list[ j ]->GetAddress(), from ) ) {
