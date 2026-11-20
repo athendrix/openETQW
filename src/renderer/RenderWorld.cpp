@@ -234,6 +234,7 @@ void idRenderWorldLocal::UpdateEntityDef( qhandle_t handle, const renderEntity_t
 }
 
 void idRenderWorldLocal::FreeEntityDef( qhandle_t handle ) {
+	RemoveDecals( handle );	// the handle is reused for another entity
 	if ( handle >= 0 && handle < entityDynamicModels.Num() ) {
 		delete entityDynamicModels[ handle ];
 		entityDynamicModels[ handle ] = NULL;
@@ -512,36 +513,7 @@ idRenderModel *idRenderWorldLocal::GetEntityHandleDynamicModel( qhandle_t handle
 	return entity != NULL ? entity->hModel : NULL;
 }
 
-idRenderModel *idRenderWorldLocal::CreateDecalModel() {
-	return NULL;
-}
-
-void idRenderWorldLocal::AddToProjectedDecal( const idFixedWinding&, const idVec3&, const bool, const idVec4&, idRenderModel*, int, const idMaterial**, const int ) {
-}
-
-void idRenderWorldLocal::ResetDecalModel( idRenderModel* ) {
-}
-
-void idRenderWorldLocal::FinishDecal( idRenderModel* ) {
-}
-
-void idRenderWorldLocal::ProjectDecalOntoWorld( const idFixedWinding&, const idVec3&, const bool, const float, const idMaterial*, const int, const int ) {
-}
-
-void idRenderWorldLocal::ProjectDecal( qhandle_t, const idFixedWinding&, const idVec3&, const bool, const float, const idMaterial*, const int, const int ) {
-}
-
-void idRenderWorldLocal::ProjectOverlay( qhandle_t, const idPlane[2], const idMaterial* ) {
-}
-
-void idRenderWorldLocal::RemoveDecals( qhandle_t ) {
-}
-
-void idRenderWorldLocal::AddCheapDecal( qhandle_t, const cheapDecalParameters_t&, float ) {
-}
-
-void idRenderWorldLocal::ClearDecals() {
-}
+// the decal methods are in RenderDecals.cpp
 
 void idRenderWorldLocal::AddEnvBounds( idVec3 const&, idVec3 const&, const char* ) {
 }

@@ -156,6 +156,7 @@ CLIENT_RENDERER_SOURCES = (
     "src/renderer/RenderSystemBackend.cpp",
     "src/renderer/RenderSystem_init.cpp",
     "src/renderer/RenderWorld.cpp",
+    "src/renderer/RenderDecals.cpp",
     "src/renderer/RenderWorld_demo.cpp",
     "src/renderer/RenderWorld_load.cpp",
     "src/renderer/RenderWorld_portals.cpp",
