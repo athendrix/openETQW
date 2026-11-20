@@ -1472,6 +1472,11 @@ static bool Com_HasGamepadBindings( void ) {
 	return false;
 }
 
+static void Com_BindDestinyKeyboard_f( const idCmdArgs& args ) {
+	cmdSystem->BufferCommandText( CMD_EXEC_APPEND, DESTINY_KEYBOARD_BINDS );
+	common->Printf( "keyboard: Destiny style layout bound over the current bindings\n" );
+}
+
 static void Com_BindGamepadDefaults_f( const idCmdArgs& args ) {
 	cmdSystem->BufferCommandText( CMD_EXEC_APPEND, GAMEPAD_DEFAULT_BINDS );
 	common->Printf( "gamepad: default (Destiny style) layout bound to the first pad\n" );
@@ -1479,6 +1484,7 @@ static void Com_BindGamepadDefaults_f( const idCmdArgs& args ) {
 
 void idCommonLocal::InitCommands() {
 	cmdSystem->AddCommand( "bindGamepadDefaults", Com_BindGamepadDefaults_f, CMD_FL_SYSTEM, "binds the default gamepad layout (Destiny style) to the first pad" );
+	cmdSystem->AddCommand( "bindDestinyKeyboard", Com_BindDestinyKeyboard_f, CMD_FL_SYSTEM, "binds Destiny's PC keys (Q grenade, C melee, E interact, V tools, F items, right mouse to aim) over the current bindings" );
 	cmdSystem->AddCommand( "quit", Com_Quit_f, CMD_FL_SYSTEM, "quits the game" );
 	cmdSystem->AddCommand( "exit", Com_Quit_f, CMD_FL_SYSTEM, "exits the game" );
 	cmdSystem->AddCommand( "status", Com_Status_f, CMD_FL_SYSTEM, "displays server status" );
@@ -1650,6 +1656,7 @@ void idCommonLocal::InitGame( bool resetConfigs ) {
 	// so it doesn't count
 	const bool freshProfile = !safeMode && fileSystem->ReadFile( CONFIG_FILE, NULL, NULL ) <= 0;
 	bool emptyBindingFile = false;
+	bool savedBindings = false;
 	if ( !safeMode ) {
 		// a binding file with no bindings (saved by a v0.1.0 draft before #363) would
 		// unbind every key the defaults just bound, so the defaults are kept (#454,
@@ -1661,6 +1668,7 @@ void idCommonLocal::InitGame( bool resetConfigs ) {
 		if ( bindings != NULL ) {
 			fileSystem->FreeFile( bindings );
 		}
+		savedBindings = hasBindings;
 		if ( hasBindings ) {
 			cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "exec " BINDING_FILE "\n" );
 		} else if ( haveBindingFile ) {
@@ -1678,6 +1686,14 @@ void idCommonLocal::InitGame( bool resetConfigs ) {
 	const bool addGamepadBinds = false;	// a server has no pads
 #else
 	const bool addGamepadBinds = !Com_HasGamepadBindings();
+#endif
+#ifndef ID_DEDICATED
+	// a profile without saved bindings: Destiny's keyboard layout over retail's defaults
+	if ( !savedBindings && !safeMode ) {
+		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, DESTINY_KEYBOARD_BINDS );
+		cmdSystem->ExecuteCommandBuffer();
+		Printf( "keyboard: no saved bindings; bound the Destiny style layout over the defaults\n" );
+	}
 #endif
 	if ( addGamepadBinds ) {
 		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, GAMEPAD_DEFAULT_BINDS );

@@ -7,31 +7,57 @@ Deck**: the feel (speeds, curve, aim assist strength) still needs tuning by hand
 ## Default pad layout
 
 A profile with no pad bindings gets this layout, after Destiny 2's default controller
-layout (`src/framework/GamepadBinds.h`). `bindGamepadDefaults` binds it again.
+layout (`src/framework/GamepadBinds.h`). It uses only the buttons every Xbox-style pad
+has: no back paddles, touchpad or gyro. `bindGamepadDefaults` binds it again.
 
-| Button | Action |
-|---|---|
-| Right trigger | Fire |
-| Left trigger | Hold to zoom (sights or scope); in a vehicle, alt-fire |
-| Left stick / right stick | Move / look |
-| Left stick click | Sprint, until the stick comes back (boost in a vehicle) |
-| Right stick click | Melee (one swing, then back to your weapon) |
-| A / B | Jump / crouch (hold) |
-| X | Tap: reload. Hold: use, enter or leave a vehicle, arm or disarm |
-| Y | Next weapon |
-| LB | Grenade: hold to cook, release to throw, then back to your weapon |
-| RB | Deploy tool (`_weapon5`) |
-| D-pad | Up: quick chat. Down: command map. Left: class tool (`_weapon4`). Right: missions |
-| View / Back | Scoreboard |
-| Start / Menu | Menu (Escape) |
-| Steam Deck R4 / L4 / R5 / L5 | Ready up / team and class / vehicle camera / prone |
-| Touchpad click | Fireteam |
+| Button | On foot | With View held | In a vehicle |
+|---|---|---|---|
+| Right trigger | Fire | | Driver of a ground vehicle: throttle. Other seats: fire |
+| Left trigger | Hold to aim (sights or scope) | | Driver: brake and reverse. Other seats: alt-fire |
+| Left stick | Move | | Steer (driver) |
+| Right stick | Look | | Look |
+| Left stick click | Sprint, until the stick comes back | | Boost (held) |
+| Right stick click | Melee (one swing, then back to your weapon) | | Tophat controls |
+| A | Jump | Vote yes | |
+| B | Tap: crouch (stays down until B, jump or sprint). Hold: prone (tap again to stand) | Vote no | Handbrake |
+| X | Tap: reload. Hold: use, enter a vehicle, arm or disarm | Activate: switch item, launch decoys | Tap: switch seat or launch decoys. Hold: get out |
+| Y | Tap: next weapon. Hold: items (`_weapon5`) | Binoculars | Vehicle camera |
+| LB | Grenade: hold to cook, release to throw, then back to your weapon | | Alt-fire |
+| RB | Tools (`_weapon4`) | | Fire |
+| D-pad up | Quick chat | Context requests | |
+| D-pad down | Command map | Vote menu | |
+| D-pad left | Team and class | Fireteam | |
+| D-pad right | Missions | Ready up | |
+| View / Back | Scoreboard (held), and the second layer | | |
+| Start / Menu | Menu (Escape) | | |
+
+An empty cell means the button keeps its on-foot action. A ground-vehicle driver drives
+Destiny Sparrow style (`in_vehicle_triggerThrottle 1`); `0` drives with the left stick.
+Aircraft keep the stock stick controls, with the triggers firing.
 
 In menus (whenever a mouse cursor shows), the left stick moves the cursor, A clicks,
 B goes back, the right stick scrolls and the d-pad sends the arrow keys.
 
-The new bindable actions also work on a keyboard or mouse, for example
-`bind MOUSE2 _zoomhold` and `bind g _quickgrenade`.
+## Keyboard
+
+A profile with no saved bindings gets Destiny 2's PC keys over retail's defaults
+(`bindDestinyKeyboard` binds them again):
+
+| Key | Action | Retail had |
+|---|---|---|
+| Q | Grenade (hold to cook) | Lean left |
+| E | Interact: use (held to arm or disarm), enter a vehicle | Lean right |
+| C | Melee | Crouch |
+| Ctrl | Crouch | Walk / handbrake |
+| Alt | Walk / handbrake | |
+| V | Tools (class ability) | Context requests |
+| F | Items (super) | Activate |
+| G | Context requests | Enter / exit vehicle |
+| Right mouse | Hold to aim | Alt-fire (toggle) |
+| X | Unbound (prone stays on Z) | Prone |
+
+In vehicles Q and E strafe the Desecrator, F switches seat or launches decoys and G
+gets out, as in retail. Lean on foot is left unbound. The rest is retail's.
 
 ## Settings
 
@@ -50,7 +76,8 @@ Look (game module, `src/game/GamepadControls.cpp`):
 | `in_aim_assistFriction` / `in_aim_assistAdhesion` | 0.5 / 0.4 | Slow down on a target / share of its motion followed |
 | `in_aim_assistRadius` / `in_aim_assistRange` | 40 / 4000 | Size of the assist area and the farthest target, in world units |
 | `in_gyro_speed`, `in_gyro_invertPitch`, `in_gyro_zoomedOnly` | 1.5, 0, 0 | Gyro aiming (needs `in_gamepadGyro 1`) |
-| `in_padHoldTime` | 250 | Milliseconds for X to count as a hold |
+| `in_padHoldTime` | 250 | Milliseconds for X and Y to count as a hold (B prone: 100 more) |
+| `in_vehicle_triggerThrottle` | 1 | Ground-vehicle drivers use the triggers (Sparrow style) |
 
 Mouse look is inverted with the usual `m_pitch` (make it negative).
 
