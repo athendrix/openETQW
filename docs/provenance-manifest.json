@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5733,
+  "totalFiles": 5734,
   "counts": {
     "SDK": 1070,
     "Doom3_GPL": 309,
@@ -9,7 +9,7 @@
     "Reconstruction_original": 394
   },
   "postSplitCounts": {
-    "Reconstruction_original": 410,
+    "Reconstruction_original": 411,
     "ThirdParty": 41,
     "Retail_asset": 4,
     "Doom3_GPL": 2,
@@ -17,7 +17,7 @@
   },
   "postSplitAsOf": {
     "openETQW": "the commit that last changed this manifest",
-    "openETQW-game": "5c9aefc86da4cc09bd0c8072c0d4fc61bcbf4355"
+    "openETQW-game": "e2738aead03129bbfb4475670c3fae0c65261a8d"
   },
   "files": [
     {
@@ -48325,9 +48325,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "65c458f963e288ec12b12c0261d1d88037df397acf324f8a1f0ab412a187ff2b",
-      "canonicalSha256": "65c458f963e288ec12b12c0261d1d88037df397acf324f8a1f0ab412a187ff2b",
-      "bytes": 6523,
+      "rawSha256": "01bc024f57446139323167cdf2c0c6d03867632a215a43d946513bf85f301e5d",
+      "canonicalSha256": "01bc024f57446139323167cdf2c0c6d03867632a215a43d946513bf85f301e5d",
+      "bytes": 8238,
       "addedAfterSplit": true,
       "addedIn": "f6ba0de4615219fb98ca749d534de44ed074fb07",
       "spdx": "GPL-3.0-or-later"
@@ -48733,9 +48733,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "c4d9dfc07fe5cd89633e1531870c2fe26675fa4a55053e58aa74a59a0ef6bec9",
-      "canonicalSha256": "c4d9dfc07fe5cd89633e1531870c2fe26675fa4a55053e58aa74a59a0ef6bec9",
-      "bytes": 4945,
+      "rawSha256": "53474cad16c3ad10c383debfa386f22dcae2faab5412587e22a9b2a16289fe53",
+      "canonicalSha256": "53474cad16c3ad10c383debfa386f22dcae2faab5412587e22a9b2a16289fe53",
+      "bytes": 5578,
       "addedAfterSplit": true,
       "addedIn": "f59e4183b0807ac063c8643ccd5dc9296dd2a632",
       "spdx": "GPL-3.0-or-later"
@@ -50035,9 +50035,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "85193e02f11d276d057ab0667967ba3f03376a7ce49351849a88eb5b28baa274",
-      "canonicalSha256": "85193e02f11d276d057ab0667967ba3f03376a7ce49351849a88eb5b28baa274",
-      "bytes": 16923,
+      "rawSha256": "e2b78657d3bab3f21725418b61dc86c778590abf6d14f62c3865e31b017fc8ff",
+      "canonicalSha256": "e2b78657d3bab3f21725418b61dc86c778590abf6d14f62c3865e31b017fc8ff",
+      "bytes": 17306,
       "addedAfterSplit": true,
       "addedIn": "7ed2cd037b78d99b66373a7971ac245e60d5f756",
       "spdx": "GPL-3.0-or-later"
@@ -52297,8 +52297,8 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "935daae29f9b419e1b4752f18832d9e46136511c2309d7c13c95eedb97a9b183",
-      "canonicalSha256": "935daae29f9b419e1b4752f18832d9e46136511c2309d7c13c95eedb97a9b183",
+      "rawSha256": "5d6748069ce94642581f01be1faac763c6d25f52441599f553c7b5477320eec6",
+      "canonicalSha256": "5d6748069ce94642581f01be1faac763c6d25f52441599f553c7b5477320eec6",
       "bytes": 41,
       "addedAfterSplit": true,
       "addedIn": "7ed2cd037b78d99b66373a7971ac245e60d5f756",
@@ -52705,9 +52705,9 @@
       "tier": "Reconstruction_original",
       "license": "MIT",
       "targetRepo": "openETQW-game",
-      "rawSha256": "e8a3932f309e5ed7c89830edff1e754db477ed9fb36d1c68656812a630e894dc",
-      "canonicalSha256": "e8a3932f309e5ed7c89830edff1e754db477ed9fb36d1c68656812a630e894dc",
-      "bytes": 30362,
+      "rawSha256": "9fc2b192ce2ed302be323f862ab73f27c3a6590bd0abe8c77441c3405f4da879",
+      "canonicalSha256": "9fc2b192ce2ed302be323f862ab73f27c3a6590bd0abe8c77441c3405f4da879",
+      "bytes": 47428,
       "addedAfterSplit": true,
       "addedIn": "112acb0e1800dc6549d5859bed2b1509559658e0",
       "spdx": "MIT"
@@ -52717,9 +52717,9 @@
       "tier": "Reconstruction_original",
       "license": "MIT",
       "targetRepo": "openETQW-game",
-      "rawSha256": "8b745cacd5afccee25f4c0552e406dec67f93ce07c6d2adfd03773b5ed87f94a",
-      "canonicalSha256": "8b745cacd5afccee25f4c0552e406dec67f93ce07c6d2adfd03773b5ed87f94a",
-      "bytes": 7086,
+      "rawSha256": "c17ffbc7b51b26b5185d21831c8158e6d5d31cd628a33fb0e7fffac3a257a845",
+      "canonicalSha256": "c17ffbc7b51b26b5185d21831c8158e6d5d31cd628a33fb0e7fffac3a257a845",
+      "bytes": 9609,
       "addedAfterSplit": true,
       "addedIn": "112acb0e1800dc6549d5859bed2b1509559658e0",
       "spdx": "MIT"
@@ -52770,6 +52770,18 @@
       "bytes": 4011,
       "addedAfterSplit": true,
       "addedIn": "b821709d1ef9fe9b05df46960d0748b8de74bcf1",
+      "spdx": "MIT"
+    },
+    {
+      "path": "src/game/decls/DestinyKeyBindings.h",
+      "tier": "Reconstruction_original",
+      "license": "MIT",
+      "targetRepo": "openETQW-game",
+      "rawSha256": "ca15dd37c733c859901349761900433447953d1848170ffbd1b495de6649b2f4",
+      "canonicalSha256": "ca15dd37c733c859901349761900433447953d1848170ffbd1b495de6649b2f4",
+      "bytes": 4193,
+      "addedAfterSplit": true,
+      "addedIn": "e2738aead03129bbfb4475670c3fae0c65261a8d",
       "spdx": "MIT"
     },
     {
