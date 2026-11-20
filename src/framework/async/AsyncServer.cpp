@@ -17,7 +17,7 @@
 // a connect challenge is good this long after it was handed out
 static const int CHALLENGE_LIFETIME_MSEC = 10000;
 #include <cstdint>
-#include <random>
+#include "SecureRandom.h"
 
 static const int SERVER_EMPTY_RESEND_MSEC = 500;
 // a dropped client's disconnect message is resent this long (4 resends): a resend still in
@@ -1574,8 +1574,7 @@ void idAsyncServer::ProcessChallengeMessage( const netadr_t from, const idBitMsg
 
 	int challengeVal = challenges[ slot ].challenge;
 	if ( challengeVal == 0 ) {
-		static std::random_device random;
-		challengeVal = static_cast< int >( ( static_cast< unsigned int >( random() ) ) & 0x7FFFFFFF );
+		challengeVal = static_cast< int >( Sys_SecureRandom32() & 0x7FFFFFFF );
 		if ( challengeVal == 0 ) {
 			challengeVal = 1;
 		}
@@ -1773,9 +1772,8 @@ sqQueryGate* QueryGate() {
 	static sqQueryGate* gate = NULL;
 	if ( gate == NULL ) {
 		uint8_t secret[ sqQueryGate::SECRET_SIZE ];
-		std::random_device random;
 		for ( int i = 0; i < sqQueryGate::SECRET_SIZE; i++ ) {
-			secret[ i ] = static_cast< uint8_t >( random() & 0xff );
+			secret[ i ] = static_cast< uint8_t >( Sys_SecureRandom32() & 0xff );
 		}
 		gate = new sqQueryGate( secret );
 		memset( secret, 0, sizeof( secret ) );
