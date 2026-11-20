@@ -174,7 +174,31 @@ static void TestBoundsAndOverflow() {
     EXPECT_TRUE( msg.IsOverflowed(), "IsOverflowed true after write past end" );
 }
 
+// a read that starts on a byte boundary at the end of the message must not take a byte
+// past it, and a read past the end leaves nothing negative behind for a later copy
+static void TestReadAtEnd() {
+    byte buffer[ 8 ] = { 1, 2, 3, 4, 5, 0xAA, 0xBB, 0xCC };
+    idBitMsg msg;
+    msg.InitRead( buffer, 5 );
+    msg.SetSize( 5 );
+    msg.BeginReading();
+    EXPECT_EQ( msg.ReadLong(), 0x04030201, "the first four bytes" );
+    EXPECT_EQ( msg.ReadLong(), -1, "a long with one byte left fails" );
+    EXPECT_TRUE( msg.GetRemainingData() >= 0, "nothing is read past the end" );
+    EXPECT_EQ( msg.ReadByte(), 5, "the last byte still reads" );
+    EXPECT_EQ( msg.GetRemainingData(), 0, "the message is used up" );
+    EXPECT_EQ( msg.ReadShort(), -1, "a read past the end fails" );
+    EXPECT_EQ( msg.GetRemainingData(), 0, "and leaves the count at the end" );
+
+    byte out[ 16 ];
+    msg.BeginReading();
+    EXPECT_EQ( msg.ReadData( out, -4 ), 0, "a negative length reads nothing" );
+    EXPECT_EQ( msg.ReadData( out, 16 ), 5, "a long read stops at the end" );
+    EXPECT_EQ( msg.ReadData( out, 4 ), 0, "and a further read gets nothing" );
+}
+
 int main() {
+    TestReadAtEnd();
     idLib::common = &s_testCommon;
 
     TestBitLevel();

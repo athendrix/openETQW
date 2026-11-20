@@ -51,6 +51,7 @@ All fragments will have the same sequence numbers.
 #define	MAX_PACKETLEN			1400		// max size of a network packet
 #define	FRAGMENT_SIZE			(MAX_PACKETLEN - 100)
 #define	FRAGMENT_BIT			(1<<31)
+#define	MAX_SEQUENCE_JUMP		4096		// a packet further ahead than this is dropped
 
 idCVar net_channelShowPackets( "net_channelShowPackets", "0", CVAR_SYSTEM | CVAR_BOOL, "show all packets" );
 idCVar net_channelShowDrop( "net_channelShowDrop", "0", CVAR_SYSTEM | CVAR_BOOL, "show dropped packets" );
@@ -369,12 +370,18 @@ bool idMsgChannel::ReadMessageData( idBitMsg &out, const idBitMsg &msg ) {
 	int reliableAcknowledge, reliableMessageSize, reliableSequence;
 
 	// read message size
-	out.SetSize( msg.ReadShort() );
+	const int size = msg.ReadShort();
+	if ( size < 0 || size > out.GetMaxSize() ) {
+		return false;
+	}
+	out.SetSize( size );
 
-	// decompress message
+	// decompress message; all of it must be there
 	idFile_BitMsg file( msg );
 	compressor->Init( &file, false, 3 );
-	compressor->Read( out.GetData(), out.GetSize() );
+	if ( compressor->Read( out.GetData(), out.GetSize() ) < out.GetSize() ) {
+		return false;
+	}
 	incomingCompression = compressor->GetCompressionRatio();
 	out.BeginReading();
 
@@ -391,7 +398,8 @@ bool idMsgChannel::ReadMessageData( idBitMsg &out, const idBitMsg &msg ) {
 	// read reliable messages
 	reliableMessageSize = out.ReadShort();
 	while( reliableMessageSize != 0 ) {
-		if ( reliableMessageSize <= 0 || reliableMessageSize > out.GetSize() - out.GetReadCount() ) {
+		// the sequence (4 bytes) comes before the message
+		if ( reliableMessageSize <= 0 || reliableMessageSize > out.GetSize() - out.GetReadCount() - 4 ) {
 			common->Printf( "%s: bad reliable message\n", Sys_NetAdrToString( remoteAddress ) );
 			return false;
 		}
@@ -560,7 +568,10 @@ bool idMsgChannel::Process( const netadr_t from, int time, idBitMsg &msg, int &s
 	// update incoming rate
 	UpdateIncomingRate( time, msg.GetSize() );
 
-	// get sequence numbers
+	// the id (read by the caller) and the sequence; anything shorter is not a channel packet
+	if ( msg.GetRemainingData() < 4 ) {
+		return false;
+	}
 	sequence = msg.ReadLong();
 
 	// check for fragment information
@@ -573,6 +584,9 @@ bool idMsgChannel::Process( const netadr_t from, int time, idBitMsg &msg, int &s
 
 	// read the fragment information
 	if ( fragmented ) {
+		if ( msg.GetRemainingData() < 4 ) {
+			return false;
+		}
 		fragStart = msg.ReadShort();
 		fragLength = msg.ReadShort();
 	} else {
@@ -594,6 +608,15 @@ bool idMsgChannel::Process( const netadr_t from, int time, idBitMsg &msg, int &s
 	if ( sequence <= incomingSequence ) {
 		if ( net_channelShowDrop.GetBool() || net_channelShowPackets.GetBool() ) {
 			common->Printf( "%s: out of order packet %i at %i\n", Sys_NetAdrToString( remoteAddress ),  sequence, incomingSequence );
+		}
+		return false;
+	}
+
+	// a sequence far ahead of the last one is not this channel's next packet: taking it
+	// would make every real packet after it look out of order
+	if ( sequence - incomingSequence > MAX_SEQUENCE_JUMP ) {
+		if ( net_channelShowDrop.GetBool() || net_channelShowPackets.GetBool() ) {
+			common->Printf( "%s: sequence %i too far past %i\n", Sys_NetAdrToString( remoteAddress ), sequence, incomingSequence );
 		}
 		return false;
 	}
@@ -651,8 +674,13 @@ bool idMsgChannel::Process( const netadr_t from, int time, idBitMsg &msg, int &s
 		}
 
 	} else {
-		memcpy( fragmentBuffer, msg.GetData() + msg.GetReadCount(), msg.GetRemainingData() );
-		fragmentLength = msg.GetRemainingData();
+		const int length = msg.GetRemainingData();
+		if ( length < 0 || length > static_cast< int >( sizeof( fragmentBuffer ) ) ) {
+			UpdatePacketLoss( time, 0, 1 );
+			return false;
+		}
+		memcpy( fragmentBuffer, msg.GetData() + msg.GetReadCount(), length );
+		fragmentLength = length;
 		UpdatePacketLoss( time, 1, 0 );
 	}
 
