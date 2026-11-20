@@ -36,7 +36,7 @@ static const char* const GAMEPAD_DEFAULT_BINDS =
 	"bind joy1_3 \"_reloaduse\"\n"					// X: tap reload, hold use / enter vehicle
 	"bind joy1_4 \"_swapweapon\"\n"					// Y: tap next weapon, hold items
 	"bind joy1_5 \"_quickgrenade\"\n"				// LB: grenade, hold to cook
-	"bind joy1_6 \"_weapon4\"\n"					// RB: tools (class tool, deploy tool)
+	"bind joy1_6 \"_quicktool\"\n"				// RB: the class tool while held, then back to the gun
 	"bind joy1_7 \"_showScores\"\n"					// view: scoreboard, and the second layer
 	"bind joy1_9 \"_padsprint\"\n"					// left stick click: sprint
 	"bind joy1_10 \"_quickmelee\"\n"				// right stick click: melee
@@ -70,8 +70,9 @@ static const char* const DESTINY_KEYBOARD_BINDS =
 	"bind c \"_quickmelee\"\n"						// melee
 	"bind q \"_quickgrenade\"\n"					// grenade, hold to cook
 	"bind e \"_interact\"\n"						// interact: use, enter; in a vehicle tap switches seat, hold gets out
-	"bind v \"_weapon4\"\n"							// class ability: tools
-	"bind f \"_weapon5\"\n"							// super: items
+	"bind v \"_quicktool\"\n"						// class ability: the tool while held, then back to the gun
+	"bind f \"_quickitem\"\n"						// super: the item while held, then back to the gun
+	"bind SHIFT \"_padsprint\"\n"					// sprint: a press runs until you stop moving forward
 	"bind MOUSE2 \"_zoomhold\"\n"					// hold to aim
 	"bind ALT \"_speed\"\n"							// walk, vehicle handbrake (retail Ctrl)
 	"bind g \"_context\"\n"							// context requests (retail V)

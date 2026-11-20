@@ -23,7 +23,7 @@ has: no back paddles, touchpad or gyro. `bindGamepadDefaults` binds it again.
 | X | Tap: reload. Hold: use, enter a vehicle, arm or disarm | Activate: switch item, launch decoys | Tap: switch seat or launch decoys. Hold: get out |
 | Y | Tap: next weapon. Hold: items (`_weapon5`) | Binoculars | Vehicle camera |
 | LB | Grenade: hold to cook, release to throw, then back to your weapon | | Alt-fire |
-| RB | Tools (`_weapon4`) | | Fire |
+| RB | Class tool while held, then back to the gun (`_quicktool`) | | Fire |
 | D-pad up | Quick chat | Context requests | |
 | D-pad down | Command map | Vote menu | |
 | D-pad left | Team and class | Fireteam | |
@@ -41,23 +41,29 @@ B goes back, the right stick scrolls and the d-pad sends the arrow keys.
 ## Keyboard
 
 A profile with no saved bindings gets Destiny 2's PC keys over retail's defaults
-(`bindDestinyKeyboard` binds them again):
+(`bindDestinyKeyboard` binds them again; a profile saved with an older version of this
+layout gets the changed keys once, `com_destinyLayout`):
 
 | Key | Action | Retail had |
 |---|---|---|
-| Q | Grenade (hold to cook) | Lean left |
+| Q | Grenade: switches, cooks while held, throws on release, switches back | Lean left |
 | E | Interact: use (held to arm or disarm), enter a vehicle | Lean right |
-| C | Melee | Crouch |
+| C | Melee: switches, strikes once, switches back | Crouch |
 | Ctrl | Crouch | Walk / handbrake |
 | Alt | Walk / handbrake | |
-| V | Tools (class ability) | Context requests |
-| F | Items (super) | Activate |
+| V | Class tool: switches, uses it while held (hack, arm, place), switches back | Context requests |
+| F | Item: switches, uses it while held, switches back | Activate |
+| Shift | Sprint: a press runs until you stop moving forward | Sprint (held) |
 | G | Context requests | Enter / exit vehicle |
 | Right mouse | Hold to aim | Alt-fire (toggle) |
 | X | Unbound (prone stays on Z) | Prone |
 
 In vehicles Q and E strafe the Desecrator, F switches seat or launches decoys and G
 gets out, as in retail. Lean on foot is left unbound. The rest is retail's.
+
+The quick actions (grenade, melee, tool, item) leave you on your gun unless the key is
+held. A tool that needs more than holding fire (a deploy menu, for example) still works
+from its own key (`4`, `5`, the weapon menu). `in_quickDebug 1` prints what they do.
 
 ## Settings
 
