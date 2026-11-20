@@ -272,9 +272,11 @@ jobs:
           rm -rf "${context}/server/base/vkprogs" "${context}/server/assets"
           test -x "${context}/server/openETQW-ded_x64"
           test -f "${context}/server/game_x64.so"
-          echo "CONTEXT=${context}" >> "${GITHUB_ENV}"
-          echo "IMAGE=ghcr.io/$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')/openetqw-server" >> "${GITHUB_ENV}"
-          echo "TAG=$(echo "${GITHUB_REF_NAME}" | tr '/' '-')" >> "${GITHUB_ENV}"
+          {
+            echo "CONTEXT=${context}"
+            echo "IMAGE=ghcr.io/$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')/openetqw-server"
+            echo "TAG=$(echo "${GITHUB_REF_NAME}" | tr '/' '-')"
+          } >> "${GITHUB_ENV}"
 
       - name: Build the image
         run: |
