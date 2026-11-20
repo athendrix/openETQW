@@ -439,7 +439,9 @@ int sdGuiFontManager::FindFont( const char* name ) {
 void sdGuiFontManager::ScreenScale( float& xScale, float& yScale ) {
 	xScale = yScale = 1.0f;
 	if ( renderSystem != NULL ) {
-		xScale = Max( 1, renderSystem->GetScreenWidth() ) / static_cast< float >( SCREEN_WIDTH );
+		// the full-screen GUI's width (R_GuiVirtualWidth): glyphs are rasterised at the
+		// size they are drawn
+		xScale = Max( 1, renderSystem->GetScreenWidth() ) / R_GuiVirtualWidth();
 		yScale = Max( 1, renderSystem->GetScreenHeight() ) / static_cast< float >( SCREEN_HEIGHT );
 	}
 }

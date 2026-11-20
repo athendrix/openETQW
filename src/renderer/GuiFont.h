@@ -8,6 +8,9 @@
 
 #include "GuiTextLayout.h"
 
+// the width of the full-screen GUI's coordinate space (GuiModel.cpp)
+float R_GuiVirtualWidth();
+
 class idImage;
 
 struct sdGuiGlyphImage {

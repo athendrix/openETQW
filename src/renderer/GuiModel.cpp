@@ -143,6 +143,18 @@ int sdGuiModel::GetWritePos() const {
 	return writePosition;
 }
 
+/*
+R_GuiVirtualWidth: the width of the full-screen GUI's coordinate space. Retail lays a
+full-screen GUI out 640 / correction wide (sdUserInterfaceLocal: 853 at 16:9, by
+r_aspectRatio), so the GUI is drawn across that width, and keeps its proportions on a
+wide screen. Drawn 640 wide, a 16:9 layout ran off the right edge and its centre (the
+sniper scope, the menus) sat two thirds across.
+*/
+float R_GuiVirtualWidth() {
+	const float correction = deviceContext != NULL ? deviceContext->GetAspectRatioCorrection() : 1.0f;
+	return correction > 0.01f ? SCREEN_WIDTH / correction : static_cast< float >( SCREEN_WIDTH );
+}
+
 void sdGuiModel::BeginEmitToCurrentView( const float*, int, bool ) {
 	fullScreen = false;
 }
@@ -577,7 +589,7 @@ void sdGuiModel::SubmitFrame( int windowWidth, int windowHeight ) {
 	glMatrixMode( GL_PROJECTION );
 	glPushMatrix();
 	glLoadIdentity();
-	glOrtho( 0.0, 640.0, 480.0, 0.0, -1.0, 1.0 );
+	glOrtho( 0.0, R_GuiVirtualWidth(), 480.0, 0.0, -1.0, 1.0 );
 	glMatrixMode( GL_MODELVIEW );
 	glPushMatrix();
 	glLoadIdentity();
@@ -980,7 +992,7 @@ void sdGuiModel::SubmitFrameVulkan() {
 					for ( int corner = 0; corner < 3; ++corner ) {
 						const sdVulkanGuiVertex& source = vertices[ fanIndexes[ corner ] ];
 						sdVulkanToolVertex vertex;
-						vertex.x = source.x * ( 2.0f / 640.0f ) - 1.0f;
+						vertex.x = source.x * ( 2.0f / R_GuiVirtualWidth() ) - 1.0f;
 						vertex.y = 1.0f - source.y * ( 2.0f / 480.0f );
 						vertex.z = 0.0f;
 						vertex.w = 1.0f;
@@ -1006,8 +1018,8 @@ void sdGuiModel::SubmitFrameVulkan() {
 			const guiTextQuad_t& quad = textQuads[ i ];
 			selectBatchImage( quad.image );
 			const byte* rgba = reinterpret_cast< const byte* >( &quad.color );
-			const float left = quad.x0 * ( 2.0f / 640.0f ) - 1.0f;
-			const float right = quad.x1 * ( 2.0f / 640.0f ) - 1.0f;
+			const float left = quad.x0 * ( 2.0f / R_GuiVirtualWidth() ) - 1.0f;
+			const float right = quad.x1 * ( 2.0f / R_GuiVirtualWidth() ) - 1.0f;
 			const float top = 1.0f - quad.y0 * ( 2.0f / 480.0f );
 			const float bottom = 1.0f - quad.y1 * ( 2.0f / 480.0f );
 			const float positions[ 4 ][ 4 ] = {
