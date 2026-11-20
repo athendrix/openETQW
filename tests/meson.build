@@ -134,6 +134,15 @@ gamepad_mapping_test = executable(
 )
 test('gamepad-mapping', gamepad_mapping_test, suite: 'unit', timeout: 30)
 
+# 5a0b. Steam Deck detection (SteamDeck.h): the override, Steam's SteamDeck=1, the GPU IDs
+steam_deck_test = executable(
+  'openetqw-steam-deck-test',
+  files('SteamDeckTest.cpp'),
+  include_directories: include_directories('../src/sys'),
+  install: false,
+)
+test('steam-deck', steam_deck_test, suite: 'unit', timeout: 30)
+
 # 5a1b. a binary MD5 model's deferred meshes drawn as their own surfaces (#461): each gets
 #       its own compact vertex list, so a vehicle part that breaks off hides only its mesh
 md5_deferred_mesh_test = executable(

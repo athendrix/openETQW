@@ -31,6 +31,7 @@
 #include "ReloadEngine.h"
 #include "BindingFile.h"
 #include "GamepadBinds.h"
+#include "../sys/SteamDeck.h"
 #include "../decllib/declLocStr.h"
 #include "../renderer/DeviceContext.h"
 #include "../renderer/FrameSyncTiming.h"
@@ -1684,6 +1685,15 @@ void idCommonLocal::InitGame( bool resetConfigs ) {
 		Printf( "gamepad: no pad bindings in this profile; bound the default layout\n" );
 	}
 	StartupVariable( NULL );
+#ifndef ID_DEDICATED
+	// a fresh profile on a Steam Deck starts at the panel's size, in fullscreen, at 60 fps,
+	// without ray tracing (SteamDeck.h); before the window opens, so no restart is needed
+	if ( freshProfile && Sys_IsSteamDeck() ) {
+		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, STEAMDECK_DISPLAY_DEFAULTS );
+		cmdSystem->ExecuteCommandBuffer();
+		Printf( "Steam Deck: first run, 1280x800 fullscreen, 60 fps, ray tracing off\n" );
+	}
+#endif
 	cvarSystem->ClearModifiedFlags( CVAR_ARCHIVE );
 	if ( emptyBindingFile || addGamepadBinds ) {
 		cvarSystem->SetModifiedFlags( CVAR_ARCHIVE );	// rewrite it with the defaults (#454)
@@ -1827,12 +1837,19 @@ int idCommonLocal::DetectMachineSpec( idStr& commands ) {
 		}
 	}
 	int level = 2;
+	const bool steamDeck = Sys_IsSteamDeck( vendorID, deviceID );
 	if ( listed ) {
 		const int listedLevel = Sys_DeviceSpecLevel( commands );
 		if ( listedLevel >= 0 ) {
 			level = listedLevel;
 		}
 		Printf( "machine spec: GPU %04x:%04x is in device.info; running its entry\n", vendorID, deviceID );
+	} else if ( steamDeck ) {
+		// the normal preset, then the Deck's own settings again over anything it set
+		level = STEAMDECK_MACHINE_SPEC;
+		commands = va( "exec %s\n", Sys_MachineSpecPreset( level ) );
+		commands += STEAMDECK_DISPLAY_DEFAULTS;
+		Printf( "machine spec: Steam Deck; the normal preset\n" );
 	} else {
 		commands = va( "exec %s\n", Sys_MachineSpecPreset( level ) );
 		if ( knownGpu ) {
