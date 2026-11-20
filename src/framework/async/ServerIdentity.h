@@ -151,7 +151,9 @@ inline bool SQ_Verify( const uint8_t publicKey[ SQ_ID_PUBLIC_SIZE ], const uint8
 	uint8_t signedMessage[ SQ_ID_SIGNATURE_SIZE + SQ_ID_MESSAGE_SIZE ];
 	uint8_t opened[ SQ_ID_SIGNATURE_SIZE + SQ_ID_MESSAGE_SIZE ];
 	memcpy( signedMessage, signature, SQ_ID_SIGNATURE_SIZE );
-	memcpy( signedMessage + SQ_ID_SIGNATURE_SIZE, message, size );
+	if ( size > 0 ) {
+		memcpy( signedMessage + SQ_ID_SIGNATURE_SIZE, message, size );
+	}
 	unsigned long long openedSize = 0;
 	return crypto_sign_ed25519_tweet_open( opened, &openedSize, signedMessage, static_cast< unsigned long long >( SQ_ID_SIGNATURE_SIZE + size ), publicKey ) == 0 &&
 		openedSize == static_cast< unsigned long long >( size );

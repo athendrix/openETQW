@@ -69,7 +69,7 @@ RULES = [
     ("openETQW-game", "legal/", ("SDK", "LicenseRef-ETQW-SDK")),
     ("openETQW-game", "", ("Reconstruction_original", "MIT")),
     ("openETQW", "LICENSES/third-party/minizip.txt", ("ThirdParty", "Zlib")),
-    # TweetNaCl 20140427, unchanged (src/libs/tweetnacl/README.md): public domain
+    # TweetNaCl 20140427, two shifts written as multiplications (src/libs/tweetnacl/README.md): public domain
     ("openETQW", "src/libs/tweetnacl/tweetnacl.c", ("ThirdParty", "LicenseRef-PublicDomain")),
     ("openETQW", "src/libs/tweetnacl/tweetnacl.h", ("ThirdParty", "LicenseRef-PublicDomain")),
     ("openETQW", "LICENSES/third-party/tweetnacl.txt", ("ThirdParty", "LicenseRef-PublicDomain")),

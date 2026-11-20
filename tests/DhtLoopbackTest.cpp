@@ -91,6 +91,7 @@ idCmdSystem * cmdSystem = NULL;
 extern "C" FILE* dht_debug;	// jech/dht's log: DHT_TEST_DEBUG=1
 extern idCVar net_dhtReadyNodes;
 extern idCVar net_dht;
+extern idCVar net_dhtRouters;
 extern idCVar net_ipv6;
 
 // cvars read 0 until a cvar system registers them (none here): set the ones the code reads
@@ -151,6 +152,7 @@ int main() {
 		dht_debug = stderr;
 	}
 	TestCVar::Set( net_dht, 1 );
+	TestCVar::Set( net_dhtRouters, 0 );	// a DHT of two: never the public one
 	TestCVar::Set( net_ipv6, 0 );	// IPv4 between the nodes
 	TestCVar::Set( net_dhtReadyNodes, 1 );
 

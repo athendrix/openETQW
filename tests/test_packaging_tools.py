@@ -65,8 +65,8 @@ def make_staged_tree(root: Path, system: str, arch: str, validate: ModuleType) -
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         (root / rel).write_text("licence\n", encoding="utf-8")
     if system == "windows":
-        for dll in validate.WINDOWS_RUNTIME_DLLS:
-            (root / dll).write_bytes(b"dll")
+        for names in validate.WINDOWS_RUNTIME_DLLS:
+            (root / names[0]).write_bytes(b"dll")
 
 
 def failures_of(validate: ModuleType, root: Path, system: str, arch: str, client: bool = True) -> list[str]:

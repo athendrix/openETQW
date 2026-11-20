@@ -590,10 +590,12 @@ endif
 
 if host_system == 'windows'
   win_runtime_dll_deps = [zlib_dep]
-  win_runtime_dlls = ['z.dll']
+  # each runtime DLL with the names its versions use: zlib's CMake build names the
+  # DLL z.dll up to 1.3 and libz.dll from 1.4 with MSVC (zlib1.dll in older builds)
+  win_runtime_dlls = [['z.dll', 'libz.dll', 'zlib1.dll']]
   if build_engine
     win_runtime_dll_deps += [sdl3_dep]
-    win_runtime_dlls += ['SDL3.dll']
+    win_runtime_dlls += [['SDL3.dll']]
   endif
   # The DLLs sit in <prefix>/bin.  A pkg-config dependency names its libdir; one
   # found through CMake (no PKG_CONFIG set) does not, so the configured prefixes
@@ -611,17 +613,19 @@ if host_system == 'windows'
   foreach pc_dir : get_option('pkg_config_path')
     runtime_dll_dirs += [fs_mod.parent(fs_mod.parent(pc_dir)) / 'bin']
   endforeach
-  foreach dll : win_runtime_dlls
+  foreach dll_names : win_runtime_dlls
     found_dll = false
-    foreach dir : runtime_dll_dirs
-      if not found_dll and fs_mod.is_file(dir / dll)
-        fs_mod.copyfile(dir / dll, dll)
-        install_data(dir / dll, install_dir: install_root)
-        found_dll = true
-      endif
+    foreach dll : dll_names
+      foreach dir : runtime_dll_dirs
+        if not found_dll and fs_mod.is_file(dir / dll)
+          fs_mod.copyfile(dir / dll, dll)
+          install_data(dir / dll, install_dir: install_root)
+          found_dll = true
+        endif
+      endforeach
     endforeach
     if not found_dll
-      warning(dll + ' was not found next to its dependency; copy it next to the binaries, ' +
+      warning(' or '.join(dll_names) + ' was not found next to its dependency; copy it next to the binaries, ' +
         'or set PKG_CONFIG / -Dcmake_prefix_path to the prefix that holds it')
     endif
   endforeach

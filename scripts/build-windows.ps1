@@ -10,7 +10,7 @@
     else ..\openETQW-game, cloned at the engine's pinned commit if missing),
     builds the game module and idLib, then the engine's client, dedicated
     server and unit tests, all with one build type. The engine build copies
-    the game module, SDL3.dll and z.dll next to its binaries. An existing build
+    the game module, SDL3.dll and zlib's DLL next to its binaries. An existing build
     directory is reconfigured, so changed game headers are always staged again.
     docs/build-scripts.md describes the behaviour.
 

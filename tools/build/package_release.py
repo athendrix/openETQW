@@ -325,9 +325,10 @@ def package_windows(args, install: Path, work: Path, licenses: dict[str, Path], 
     top = f"{ASSET_PREFIX}-{args.version_tag}-windows-{arch}"
     package = work / top
     copy_tree(install, package)
-    for dll in ("SDL3.dll", "z.dll"):
-        if not (package / dll).is_file():
-            raise PackageError(f"the staged tree lacks {dll} (meson.build copies it from the dependency prefix)")
+    # zlib's DLL is z.dll up to 1.3, libz.dll from 1.4 with MSVC, zlib1.dll in older builds
+    for names in (("SDL3.dll",), ("z.dll", "libz.dll", "zlib1.dll")):
+        if not any((package / dll).is_file() for dll in names):
+            raise PackageError(f"the staged tree lacks {' or '.join(names)} (meson.build copies it from the dependency prefix)")
     copy_file(args.glslang_dir / "glslangValidator.exe", package / "glslangValidator.exe")
     if args.windows_crt_dir:
         crt = sorted(args.windows_crt_dir.glob("*.dll"))

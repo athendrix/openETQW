@@ -134,15 +134,23 @@ public:
 	// reads Write's text; lines that are not an entry are skipped. False without the header
 	bool Read( const char* text ) {
 		entries.clear();
-		const size_t headerLength = strlen( Header() );
-		if ( text == NULL || strncmp( text, Header(), headerLength ) != 0 || ( text[ headerLength ] != '\n' && text[ headerLength ] != '\r' ) ) {
+		// no strncmp or strlen: idLib takes them away in engine code
+		const char* header = Header();
+		size_t headerLength = 0;
+		while ( header[ headerLength ] != '\0' ) {
+			if ( text == NULL || text[ headerLength ] != header[ headerLength ] ) {
+				return false;
+			}
+			headerLength++;
+		}
+		if ( text[ headerLength ] != '\n' && text[ headerLength ] != '\r' ) {
 			return false;
 		}
 		const char* line = strchr( text, '\n' );
 		while ( line != NULL && *line != '\0' ) {
 			line++;
 			const char* end = strchr( line, '\n' );
-			const std::string current( line, end != NULL ? static_cast< size_t >( end - line ) : strlen( line ) );
+			const std::string current = end != NULL ? std::string( line, static_cast< size_t >( end - line ) ) : std::string( line );
 			ReadLine( current );
 			line = end;
 		}
@@ -167,11 +175,12 @@ private:
 	}
 
 	static bool ValidAddress( const char* address ) {
-		if ( address == NULL || address[ 0 ] == '\0' || strlen( address ) > static_cast< size_t >( MAX_ADDRESS_LENGTH ) ) {
+		if ( address == NULL || address[ 0 ] == '\0' ) {
 			return false;
 		}
+		int length = 0;
 		for ( const char* c = address; *c != '\0'; c++ ) {
-			if ( *c <= ' ' || *c > '~' ) {
+			if ( *c <= ' ' || *c > '~' || ++length > MAX_ADDRESS_LENGTH ) {
 				return false;
 			}
 		}

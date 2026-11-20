@@ -58,7 +58,9 @@ PROFILES = {
     "pr": {"buildtype": "debugoptimized", "fail_on_dirty": True},
 }
 
-WINDOWS_RUNTIME_DLLS = ["SDL3.dll", "z.dll"]
+# each runtime DLL with the names its versions use (zlib: z.dll up to 1.3, libz.dll from
+# 1.4 with MSVC, zlib1.dll in older builds)
+WINDOWS_RUNTIME_DLLS = [("SDL3.dll",), ("z.dll", "libz.dll", "zlib1.dll")]
 MACOS_MIN_OS = "11.0"
 
 
@@ -252,11 +254,11 @@ def check_windows_binary(path: Path, arch: str, failures: list[str]) -> None:
 
 
 def check_windows_payload(install: Path, client_expected: bool, failures: list[str]) -> None:
-    for dll in WINDOWS_RUNTIME_DLLS:
-        if dll == "SDL3.dll" and not client_expected:
+    for names in WINDOWS_RUNTIME_DLLS:
+        if names[0] == "SDL3.dll" and not client_expected:
             continue
-        if not (install / dll).is_file():
-            failures.append(f"missing runtime DLL {dll} next to the binaries")
+        if not any((install / dll).is_file() for dll in names):
+            failures.append(f"missing runtime DLL {' or '.join(names)} next to the binaries")
 
 
 def validate_payload(install: Path, arch: str, system: str, client_expected: bool) -> None:

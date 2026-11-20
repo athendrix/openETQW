@@ -41,6 +41,7 @@ on DNS.
 #include "../libs/dht/dht.h"
 
 idCVar net_dht( "net_dht", "1", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_BOOL | CVAR_NOCHEAT, "find Internet servers through the BitTorrent DHT (the server browser's Internet tab)" );
+idCVar net_dhtRouters( "net_dhtRouters", "1", CVAR_SYSTEM | CVAR_BOOL | CVAR_NOCHEAT, "ask the public DHT routers for nodes when the node knows too few (off for a private DHT; dhtPing adds nodes)" );
 idCVar net_dhtReadyNodes( "net_dhtReadyNodes", "4", CVAR_SYSTEM | CVAR_INTEGER | CVAR_NOCHEAT, "good DHT nodes known before the node announces or searches (tests lower it)", 1, 64 );
 extern idCVar net_ipv6;
 
@@ -514,7 +515,7 @@ void DHT_Frame( void ) {
 	const time_t now = time( NULL );
 
 	// the routers, when we know too few nodes
-	if ( !state.routersAsked && GoodNodes() < DHT_ENOUGH_NODES && now >= state.nextSave - DHT_SAVE_SECONDS + 3 ) {
+	if ( !state.routersAsked && net_dhtRouters.GetBool() && GoodNodes() < DHT_ENOUGH_NODES && now >= state.nextSave - DHT_SAVE_SECONDS + 3 ) {
 		state.routersAsked = true;
 		std::thread( LookUpRouters ).detach();
 	}
