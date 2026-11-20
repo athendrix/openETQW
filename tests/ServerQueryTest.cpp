@@ -10,6 +10,11 @@ to the per-second cap.
 ===========================================================================
 */
 
+// the C++ library before idLib, whose Str.h takes C string functions away by macro
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+
 #include "src/idlib/precompiled.h"
 #include "src/idlib/BitMsg.h"
 #include "src/framework/Common_public.h"
@@ -86,7 +91,7 @@ static bool ReadCommand( idBitMsg& msg, const char* expected ) {
 
 static void Hex( const uint8_t* bytes, int size, char* out ) {
 	for ( int i = 0; i < size; i++ ) {
-		snprintf( out + i * 2, 3, "%02x", bytes[ i ] );
+		idStr::snPrintf( out + i * 2, 3, "%02x", bytes[ i ] );
 	}
 }
 
@@ -250,12 +255,12 @@ static void TestOnePacket() {
 	memset( value, 'v', sizeof( value ) - 1 );
 	value[ sizeof( value ) - 1 ] = '\0';
 	for ( int i = 1; i < SQ_MAX_KEYS; i++ ) {
-		snprintf( key, sizeof( key ), "key%d", i );
+		idStr::snPrintf( key, sizeof( key ), "key%d", i );
 		info.AddKey( key, value );
 	}
 	Expect( !info.AddKey( "one_too_many", "x" ), "the key table is full at SQ_MAX_KEYS" );
 	for ( int i = 0; i < 32; i++ ) {
-		snprintf( key, sizeof( key ), "Player%02d", i );
+		idStr::snPrintf( key, sizeof( key ), "Player%02d", i );
 		info.AddPlayer( key, i, false );
 	}
 
