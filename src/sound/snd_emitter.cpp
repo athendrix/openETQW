@@ -671,13 +671,18 @@ int idSoundEmitterLocal::StartSound( const idSoundShader *shader, const soundCha
 	}
 
 	// a shader that names a Bink movie plays its frames (GUI cinematics, #190);
-	// its sound track isn't mixed
+	// a Theora movie's .ogg sound track plays with it, a Bink one's isn't mixed
 	idStr binkPath;
 	if ( Sound_FindBinkPath( shader, binkPath ) ) {
 		if ( movie == NULL ) {
 			movie = new sdSoundBinkMovie;
 		}
-		movie->Open( binkPath.c_str() );
+		if ( movie->Open( binkPath.c_str() ) && movie->SoundTrack()[ 0 ] != '\0' ) {
+			const idSoundShader* track = MovieSoundTrack( shader, movie->SoundTrack() );
+			if ( track != NULL ) {
+				StartSoundOnChannel( track, channelStart, 0.0f, soundShaderFlags );
+			}
+		}
 		return 0;
 	}
 
@@ -700,6 +705,36 @@ int idSoundEmitterLocal::StartSound( const idSoundShader *shader, const soundCha
 		}
 	}
 	return StartSoundOnChannel( shader, channel, diversity, soundShaderFlags );
+}
+
+/*
+===================
+idSoundEmitterLocal::MovieSoundTrack
+
+ETQW: a sound shader that plays a movie's .ogg sound track, with the movie shader's
+parameters: "<movie shader>/soundtrack", made the first time it is asked for
+===================
+*/
+const idSoundShader *idSoundEmitterLocal::MovieSoundTrack( const idSoundShader *movieShader, const char *trackPath ) {
+	const qhandle_t soundType = declManager->GetDeclTypeHandle( declSoundShaderIdentifier );
+	idStr name = movieShader->GetName();
+	name += "/soundtrack";
+	idSoundShader *track = const_cast< idSoundShader * >( static_cast< const idSoundShader * >(
+		declManager->FindType( soundType, name.c_str(), true ) ) );
+	if ( track == NULL ) {
+		return NULL;
+	}
+	if ( track->numEntries == 0 ) {
+		idSoundSample *sample = soundSystemLocal.soundCache->FindSound( trackPath, false );
+		if ( sample == NULL || sample->defaultSound ) {
+			return NULL;
+		}
+		track->parms = movieShader->parms;
+		track->parms.soundShaderFlags |= SSF_GLOBAL | SSF_NO_OCCLUSION;
+		track->entries[ 0 ] = sample;
+		track->numEntries = 1;
+	}
+	return track;
 }
 
 /*

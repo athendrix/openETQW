@@ -168,7 +168,8 @@ sdSoundBinkMovie::sdSoundBinkMovie() :
 	frameMsec( 33 ),
 	nextFrameTime( 0 ),
 	playing( false ),
-	frameReady( false ) {
+	frameReady( false ),
+	useTheora( false ) {
 }
 
 sdSoundBinkMovie::~sdSoundBinkMovie() {
@@ -177,9 +178,27 @@ sdSoundBinkMovie::~sdSoundBinkMovie() {
 
 bool sdSoundBinkMovie::Open( const char* samplePath ) {
 	Close();
+	if ( samplePath == NULL || samplePath[ 0 ] == '\0' ) {
+		return false;
+	}
+
+	// the portable movie first: name.ogv, with name.ogg as its sound track
+	idStr moviePath = samplePath;
+	moviePath.BackSlashesToSlashes();
+	moviePath.SetFileExtension( ".ogv" );
+	if ( theora.Open( moviePath.c_str() ) ) {
+		useTheora = true;
+		idStr trackPath = moviePath;
+		trackPath.SetFileExtension( ".ogg" );
+		if ( fileSystem->ReadFile( trackPath.c_str(), NULL ) > 0 ) {
+			soundTrack = trackPath;
+		}
+		return true;
+	}
+
 	idStr osPath;
 	if ( !ResolveBinkOSPath( samplePath, osPath ) ) {
-		common->Warning( "Bink cinematic '%s' was not found below the game base directory", samplePath );
+		common->Warning( "cinematic '%s' was not found: put %s (Ogg Theora) beside it", samplePath, moviePath.c_str() );
 		return false;
 	}
 	if ( !binkApi.Load() ) {
@@ -222,6 +241,9 @@ bool sdSoundBinkMovie::Open( const char* samplePath ) {
 }
 
 void sdSoundBinkMovie::Close() {
+	theora.Close();
+	useTheora = false;
+	soundTrack.Clear();
 	if ( bink != NULL && binkApi.close != NULL ) {
 		binkApi.close( bink );
 	}
@@ -236,10 +258,13 @@ void sdSoundBinkMovie::Close() {
 }
 
 bool sdSoundBinkMovie::IsPlaying() const {
-	return playing;
+	return useTheora ? theora.IsPlaying() : playing;
 }
 
 cinData_t sdSoundBinkMovie::ImageForTime() {
+	if ( useTheora ) {
+		return theora.ImageForTime();
+	}
 	if ( !playing || bink == NULL || videoBuffer == NULL ) {
 		return Sound_EmptyCinematicData();
 	}

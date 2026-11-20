@@ -452,6 +452,33 @@ if build_engine
     install: false,
   )
 
+  # Ogg Theora decoding for the portable GUI movies (src/sound/SoundTheora.cpp):
+  # libtheora's decoder (src/libs/theora), on the Ogg framing above
+  theora_lib = static_library(
+    'openetqw-theora',
+    files(
+      'src/libs/theora/lib/bitpack.c',
+      'src/libs/theora/lib/decinfo.c',
+      'src/libs/theora/lib/decode.c',
+      'src/libs/theora/lib/dequant.c',
+      'src/libs/theora/lib/fragment.c',
+      'src/libs/theora/lib/huffdec.c',
+      'src/libs/theora/lib/idct.c',
+      'src/libs/theora/lib/info.c',
+      'src/libs/theora/lib/internal.c',
+      'src/libs/theora/lib/mathops.c',
+      'src/libs/theora/lib/quant.c',
+      'src/libs/theora/lib/state.c',
+    ),
+    include_directories: include_directories('src/libs/theora/include', 'src/sound/OggVorbis'),
+    # the Ogg 1.1 headers here have no ogg_uint64_t, which one loop in state.c uses
+    c_args: cc.get_supported_arguments(['-w', '/w']) + ['-Dogg_uint64_t=unsigned long long'],
+    install: false,
+  )
+  client_deps += [declare_dependency(
+    include_directories: include_directories('src/libs/theora/include', 'src/sound/OggVorbis'),
+  )]
+
   executable(
     engine_client_binary_name,
     openetqw_client_sources,
@@ -462,7 +489,7 @@ if build_engine
     cpp_args: client_cpp_args,
     objcpp_args: client_cpp_args,
     dependencies: client_deps,
-    link_with: oggvorbis_lib,
+    link_with: [oggvorbis_lib, theora_lib],
     link_args: client_link_args,
     # the game module resolves engine symbols on Linux and macOS; on Windows the
     # engine exports nothing, so there is no import library to build or install
@@ -539,7 +566,8 @@ install_data(
   'LICENSES' / 'third-party' / 'minizip.txt',
   'LICENSES' / 'third-party' / 'tweetnacl.txt',
   'LICENSES' / 'third-party' / 'jech-dht.txt',
-  rename: ['imgui.txt', 'recastnavigation.txt', 'minizip.txt', 'tweetnacl.txt', 'jech-dht.txt'],
+  'LICENSES' / 'third-party' / 'libtheora.txt',
+  rename: ['imgui.txt', 'recastnavigation.txt', 'minizip.txt', 'tweetnacl.txt', 'jech-dht.txt', 'libtheora.txt'],
   install_dir: install_root / 'licenses' / 'openETQW' / 'third-party',
 )
 if game_repo_root != ''

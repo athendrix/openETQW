@@ -50,6 +50,28 @@ The client finds the data in this order:
 4. the usual install folders, Steam libraries and Wine prefixes;
 5. otherwise it asks you for the folder on its first start.
 
+### The intro movie (optional)
+
+Retail's movies are Bink (`.bik`), which only Windows could play. Convert the intro
+once with ffmpeg and put the two files next to the `.bik` in `base/video/`; the client
+plays a `.ogv` (the picture) with a `.ogg` of the same name (the sound) on every
+platform. The `.bik` holds six audio tracks: the first two are the music and effects,
+the other four are the voice-over in four languages; the commands below take the third
+(the first voice track). List them with `ffprobe intro_1024x512.bik`.
+
+```bash
+ffmpeg -i intro_1024x512.bik -map 0:v:0 -an -c:v libtheora -q:v 10 -pix_fmt yuv420p intro_1024x512.ogv
+```
+
+```bash
+ffmpeg -i intro_1024x512.bik -filter_complex "[0:a:0][0:a:1][0:a:2]amix=inputs=3:normalize=0,aresample=44100[a]" -map "[a]" -ac 2 -c:a libvorbis -q:a 6 intro_1024x512.ogg
+```
+
+`-q:v 10` is Theora's best quality (a bare `ffmpeg -i x.bik x.ogv` picks a low bit
+rate, hence the blur). For another voice track, swap `[0:a:2]` for `[0:a:3]`, `[0:a:4]` or
+`[0:a:5]`. If the mix clips, drop `normalize=0`. The intro plays once; `seta
+gui_introPlayed 0` in the console plays it again at the next start.
+
 ## 3. Linux client
 
 **The AppImage** needs no install. It bundles SDL3 and takes Vulkan and OpenGL from the

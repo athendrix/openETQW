@@ -458,6 +458,7 @@ public:
 	// ETQW: start a channel's sample this many milliseconds in
 	virtual void		SetChannelOffset( const soundChannel_t channel, int ms );
 	int					StartSoundOnChannel( const idSoundShader *shader, const soundChannel_t channel, float diversity, int shaderFlags );
+	const idSoundShader *	MovieSoundTrack( const idSoundShader *movieShader, const char *trackPath );
 
 	//----------------------------------------------
 

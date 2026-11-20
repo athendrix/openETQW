@@ -143,6 +143,7 @@ CLIENT_SOUND_SOURCES = (
     "src/sound/snd_wavefile.cpp",
     "src/sound/snd_world.cpp",
     "src/sound/SoundBink.cpp",
+    "src/sound/SoundTheora.cpp",
     "src/sound/snd_openal_none.cpp",
 )
 
