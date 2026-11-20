@@ -5,6 +5,7 @@
 #include "declLocStr.h"
 
 #pragma hdrstop
+#include "LocStrOverrides.h"
 
 size_t sdDeclLocStr::Size( void ) const {
 	return sizeof( sdDeclLocStr ) + locText.Allocated();
@@ -96,6 +97,11 @@ bool sdDeclLocStr::Parse( const char* text, const int textLength ) {
 
 	if ( !foundText ) {
 		locText = va( L"###%hs###", GetName() );
+	}
+	for ( size_t i = 0; i < sizeof( LOCSTR_OVERRIDES ) / sizeof( LOCSTR_OVERRIDES[ 0 ] ); i++ ) {
+		if ( numArgs == 0 && idStr::Icmp( GetName(), LOCSTR_OVERRIDES[ i ].name ) == 0 ) {
+			locText = LOCSTR_OVERRIDES[ i ].text;
+		}
 	}
 	return true;
 }

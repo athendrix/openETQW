@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5696,
+  "totalFiles": 5697,
   "counts": {
     "SDK": 1070,
     "Doom3_GPL": 309,
@@ -9,7 +9,7 @@
     "Reconstruction_original": 394
   },
   "postSplitCounts": {
-    "Reconstruction_original": 406,
+    "Reconstruction_original": 407,
     "ThirdParty": 8,
     "Retail_asset": 4,
     "Doom3_GPL": 2,
@@ -17,7 +17,7 @@
   },
   "postSplitAsOf": {
     "openETQW": "the commit that last changed this manifest",
-    "openETQW-game": "48372711a75c4abe7944b56cfe2a27cc58a2f26e"
+    "openETQW-game": "5c9aefc86da4cc09bd0c8072c0d4fc61bcbf4355"
   },
   "files": [
     {
@@ -47515,9 +47515,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "03e43bc6e73a72ed2945cf04ebb034a9e69f615bd0e256df9b4e664ed6cb856e",
-      "canonicalSha256": "03e43bc6e73a72ed2945cf04ebb034a9e69f615bd0e256df9b4e664ed6cb856e",
-      "bytes": 12792,
+      "rawSha256": "ee55addd1c08b13dd40e1b1a8feb3433bfd660b72d6d3b6a2f211ad5f01c1ca2",
+      "canonicalSha256": "ee55addd1c08b13dd40e1b1a8feb3433bfd660b72d6d3b6a2f211ad5f01c1ca2",
+      "bytes": 12784,
       "addedAfterSplit": true,
       "addedIn": "9e264b739c568808b330170eb46a60b07bb7b41a",
       "spdx": "GPL-3.0-or-later"
@@ -48313,9 +48313,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "007eee45b1c8832203178893566506765ad6f25b7eed0c0262b0996ed094587c",
-      "canonicalSha256": "007eee45b1c8832203178893566506765ad6f25b7eed0c0262b0996ed094587c",
-      "bytes": 5866,
+      "rawSha256": "65c458f963e288ec12b12c0261d1d88037df397acf324f8a1f0ab412a187ff2b",
+      "canonicalSha256": "65c458f963e288ec12b12c0261d1d88037df397acf324f8a1f0ab412a187ff2b",
+      "bytes": 6523,
       "addedAfterSplit": true,
       "addedIn": "f6ba0de4615219fb98ca749d534de44ed074fb07",
       "spdx": "GPL-3.0-or-later"
@@ -48633,6 +48633,18 @@
       "spdx": "GPL-3.0-or-later"
     },
     {
+      "path": "src/decllib/LocStrOverrides.h",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "31c4828f3f7370e375c18b68a6189232beb03365a8bd541c55d17b2247c18109",
+      "canonicalSha256": "31c4828f3f7370e375c18b68a6189232beb03365a8bd541c55d17b2247c18109",
+      "bytes": 775,
+      "addedAfterSplit": true,
+      "addedIn": null,
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
       "path": "src/decllib/declEffect.cpp",
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
@@ -48665,7 +48677,7 @@
       "canonicalSha256": "1f2401c4cd1b128df2279f0858df6488fbc7524d3643871b5268d74a659382c5",
       "bytes": 1935,
       "addedAfterSplit": true,
-      "addedIn": null,
+      "addedIn": "f5086a81f7f6437279104f3f39dd1ab60a023125",
       "spdx": "GPL-3.0-or-later"
     },
     {
@@ -48709,9 +48721,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "ce1bae0a788db235bce401c46b6b4b9d740fc121f2b0bfc340140577495a20aa",
-      "canonicalSha256": "ce1bae0a788db235bce401c46b6b4b9d740fc121f2b0bfc340140577495a20aa",
-      "bytes": 4765,
+      "rawSha256": "c4d9dfc07fe5cd89633e1531870c2fe26675fa4a55053e58aa74a59a0ef6bec9",
+      "canonicalSha256": "c4d9dfc07fe5cd89633e1531870c2fe26675fa4a55053e58aa74a59a0ef6bec9",
+      "bytes": 4945,
       "addedAfterSplit": true,
       "addedIn": "f59e4183b0807ac063c8643ccd5dc9296dd2a632",
       "spdx": "GPL-3.0-or-later"
@@ -49733,7 +49745,7 @@
       "canonicalSha256": "82c0a3df15a6b7a2c1b23f0c16be6a0b394259418979a72bdf4aff11dfc18df5",
       "bytes": 2183,
       "addedAfterSplit": true,
-      "addedIn": null,
+      "addedIn": "f5086a81f7f6437279104f3f39dd1ab60a023125",
       "spdx": "GPL-3.0-or-later"
     },
     {
@@ -51853,8 +51865,8 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "7df0f95ba0f309ab245ccbf94f8480aeb1590f0a60ce166682b7a7f584c6e51d",
-      "canonicalSha256": "7df0f95ba0f309ab245ccbf94f8480aeb1590f0a60ce166682b7a7f584c6e51d",
+      "rawSha256": "935daae29f9b419e1b4752f18832d9e46136511c2309d7c13c95eedb97a9b183",
+      "canonicalSha256": "935daae29f9b419e1b4752f18832d9e46136511c2309d7c13c95eedb97a9b183",
       "bytes": 41,
       "addedAfterSplit": true,
       "addedIn": "7ed2cd037b78d99b66373a7971ac245e60d5f756",
@@ -52025,7 +52037,7 @@
       "canonicalSha256": "4ba0b64a14d4a4572e02fca208b08c0b46b4c499753812cf499baf04648ac7b5",
       "bytes": 1727,
       "addedAfterSplit": true,
-      "addedIn": null,
+      "addedIn": "f5086a81f7f6437279104f3f39dd1ab60a023125",
       "spdx": "GPL-3.0-or-later"
     },
     {
@@ -52261,9 +52273,9 @@
       "tier": "Reconstruction_original",
       "license": "MIT",
       "targetRepo": "openETQW-game",
-      "rawSha256": "ad8892a136aee91461e9d581eb0954bae295a2ccb1dbecbb30697248d22e3411",
-      "canonicalSha256": "ad8892a136aee91461e9d581eb0954bae295a2ccb1dbecbb30697248d22e3411",
-      "bytes": 28070,
+      "rawSha256": "e8a3932f309e5ed7c89830edff1e754db477ed9fb36d1c68656812a630e894dc",
+      "canonicalSha256": "e8a3932f309e5ed7c89830edff1e754db477ed9fb36d1c68656812a630e894dc",
+      "bytes": 30362,
       "addedAfterSplit": true,
       "addedIn": "112acb0e1800dc6549d5859bed2b1509559658e0",
       "spdx": "MIT"
@@ -52273,9 +52285,9 @@
       "tier": "Reconstruction_original",
       "license": "MIT",
       "targetRepo": "openETQW-game",
-      "rawSha256": "0040f141b660cd366bd6efe5edfbe16899e102fff8d27ecc1c71d728029ebef3",
-      "canonicalSha256": "0040f141b660cd366bd6efe5edfbe16899e102fff8d27ecc1c71d728029ebef3",
-      "bytes": 6406,
+      "rawSha256": "8b745cacd5afccee25f4c0552e406dec67f93ce07c6d2adfd03773b5ed87f94a",
+      "canonicalSha256": "8b745cacd5afccee25f4c0552e406dec67f93ce07c6d2adfd03773b5ed87f94a",
+      "bytes": 7086,
       "addedAfterSplit": true,
       "addedIn": "112acb0e1800dc6549d5859bed2b1509559658e0",
       "spdx": "MIT"
