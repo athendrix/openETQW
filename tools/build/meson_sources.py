@@ -111,6 +111,9 @@ NAVIGATION_RECAST_SOURCES = (
 SDNET_SOURCES = (
     "src/sdnet/SDNet.cpp",
     "src/sdnet/SDNetBrowser.cpp",
+    # server discovery through the BitTorrent DHT: jech/dht (src/libs/dht/README.md)
+    "src/sdnet/Dht.cpp",
+    "src/sdnet/DhtLibrary.c",
 )
 
 BSE_PARTICLE_SOURCES = (

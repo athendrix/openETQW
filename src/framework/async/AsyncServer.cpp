@@ -16,8 +16,12 @@
 #include "ServerIdentity.h"
 #include "../../sys/LocalSubnets.h"
 #include "../../sys/NetAddress.h"
+#include "../../sdnet/Dht.h"
+void SDNet_BrowserAnnounce( int gamePort );	// src/sdnet/SDNetBrowser.h
 
 extern idCVar net_ipv6;
+extern idCVar net_serverAnswerQueries;
+idCVar net_serverAnnounce( "net_serverAnnounce", "0", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_BOOL | CVAR_NOCHEAT, "announce this server in the BitTorrent DHT, so players' server browsers find it (Internet tab); set net_serverPublicAddress too" );
 
 // a connect challenge is good this long after it was handed out
 static const int CHALLENGE_LIFETIME_MSEC = 10000;
@@ -141,6 +145,10 @@ bool idAsyncServer::InitPort() {
 }
 
 void idAsyncServer::ClosePort() {
+	DHT_Stop( &serverPort );
+	if ( !idAsyncNetwork::serverDedicated.GetBool() ) {
+		SDNet_BrowserAnnounce( 0 );
+	}
 	serverPort.Close();
 	for ( int i = 0; i < MAX_CHALLENGES; ++i ) {
 		challenges[ i ].authReplyPrint.Clear();
@@ -655,7 +663,10 @@ void idAsyncServer::ProcessConnectionLessMessages() {
 		idBitMsg msg;
 		msg.InitWrite( buffer, sizeof( buffer ) );
 		msg.SetSize( size );
-		ProcessMessage( from, msg );
+		// the DHT's packets are those no client or query claimed (Dht.h)
+		if ( !ProcessMessage( from, msg ) && DHT_RunningOn( &serverPort ) && DHT_IsPacket( buffer, size ) ) {
+			DHT_Input( from, buffer, size );
+		}
 	}
 }
 
@@ -707,11 +718,27 @@ void idAsyncServer::LocalClientSendReliableMessage( const idBitMsg& msg ) {
 	}
 }
 
+/*
+The DHT stands in for the master server (src/sdnet/Dht.h): with net_serverAnnounce, a
+dedicated server runs a DHT node on its game port and announces that port; a listen
+server announces through the browser's node. Called every frame.
+*/
 void idAsyncServer::MasterHeartbeat( bool force ) {
-	if ( !force && realTime < nextHeartbeatTime ) {
+	( void )force;
+	const bool announce = active && net_serverAnnounce.GetBool() && net_serverAnswerQueries.GetBool() && !idAsyncNetwork::LANServer.GetBool();
+	if ( !idAsyncNetwork::serverDedicated.GetBool() ) {
+		SDNet_BrowserAnnounce( announce ? serverPort.GetPort() : 0 );
 		return;
 	}
-	nextHeartbeatTime = realTime + 5 * 60 * 1000;
+	if ( announce && !DHT_Running() ) {
+		DHT_Start( &serverPort );
+	} else if ( !announce && DHT_RunningOn( &serverPort ) ) {
+		DHT_Stop( &serverPort );
+	}
+	if ( DHT_RunningOn( &serverPort ) ) {
+		DHT_SetAnnouncePort( serverPort.GetPort() );
+		DHT_Frame();
+	}
 }
 
 void idAsyncServer::DropClient( int clientNum, const char* reason ) {

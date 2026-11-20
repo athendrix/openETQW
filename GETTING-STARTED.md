@@ -144,6 +144,17 @@ for players outside your LAN, forward it on your router to the server. The same 
 answers the menu's server browser. Players add the server to their list once with
 `addServer` (section 5).
 
+**Being found:** to have players' Internet tab list the server, turn on its DHT
+announce and tell it its public address:
+
+```
+set net_serverAnnounce 1
+```
+
+It then announces its game port in the DHT every 15 minutes (on the same UDP port, so
+nothing more to open). `dhtStatus` shows the DHT node's state. The first start asks the
+public DHT routers for nodes; after that the server remembers nodes in `dht.dat`.
+
 **Its identity:** the server makes a key the first time it answers the browser and keeps
 it in `serverkey.dat` in its save path (keep that file when you move the server). Players
 who starred the server find it again by that key on the LAN, at its public address, and
@@ -171,8 +182,11 @@ UDP 27733 for both in the firewall); a LAN search also asks every IPv6 neighbour
   (50 a second, starting when the game starts), so a server found that way shows up a
   little later. `net_lanSweepRate 0` turns the sweep off; `net_lanScanAtStart 0` waits
   for the LAN tab.
-- **Internet** lists the servers in your server list. There is no master server, so you
-  add a server once, in the console (the key above Tab):
+- **Internet** lists the servers that announce themselves in the BitTorrent DHT (there
+  is no master server; the DHT is the public network BitTorrent clients use to find each
+  other, and the game looks up one key in it), the ones found before (remembered for a
+  month after they last answered, listed only while they answer), and your server list.
+  A server that does not announce can be added once, in the console (the key above Tab):
 
   ```
   addServer your.server.address

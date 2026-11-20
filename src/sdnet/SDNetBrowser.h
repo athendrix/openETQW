@@ -31,5 +31,6 @@ void	SDNet_BrowserShutdown( void );
 void	SDNet_BrowserRegisterCommands( void );
 void	SDNet_BrowserServerJoined( const netadr_t& address );	// a connect was accepted
 bool	SDNet_BrowserLanServerSeen( void );	// a server on the LAN has answered since the game started
+void	SDNet_BrowserAnnounce( int gamePort );	// a listen server's DHT announce through the browser's node (0: stop)
 
 #endif /* !__SDNET_SDNETBROWSER_H__ */

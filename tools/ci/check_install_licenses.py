@@ -28,6 +28,7 @@ REQUIRED = [
     "licenses/openETQW/third-party/recastnavigation.txt",
     "licenses/openETQW/third-party/minizip.txt",
     "licenses/openETQW/third-party/tweetnacl.txt",
+    "licenses/openETQW/third-party/jech-dht.txt",
     "licenses/ETQW-SDK/EULA_SDK_ETQW.txt",
     "licenses/ETQW-SDK/EULA SDK ETQW.rtf",
     "licenses/openETQW-game/LICENSE",

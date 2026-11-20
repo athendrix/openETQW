@@ -96,6 +96,17 @@ net_address_test = executable(
 )
 test('net-address', net_address_test, suite: 'unit', timeout: 30)
 
+# the browser's cache of servers found through the DHT
+server_cache_test = executable(
+  'openetqw-server-cache-test',
+  files('ServerCacheTest.cpp'),
+  include_directories: test_include_dirs,
+  dependencies: test_deps,
+  link_args: test_link_args,
+  install: false,
+)
+test('server-cache', server_cache_test, suite: 'unit', timeout: 30)
+
 # 2. UserCmd delta serialization & sequence test
 usercmd_test_src = files(
   'UserCmdDeltaTest.cpp',
@@ -291,6 +302,23 @@ if host_system != 'windows'
     install: false,
   )
   test('net-port', net_port_test, suite: 'unit', timeout: 30)
+
+  # two DHT nodes on this host (src/sdnet/Dht.cpp): one announces, the other finds it
+  dht_loopback_test = executable(
+    'openetqw-dht-loopback-test',
+    files(
+      'DhtLoopbackTest.cpp',
+      meson.project_source_root() / 'src' / 'sdnet' / 'Dht.cpp',
+      meson.project_source_root() / 'src' / 'sdnet' / 'DhtLibrary.c',
+      meson.project_source_root() / 'src' / 'sys' / 'posix' / 'posix_net.cpp',
+    ),
+    include_directories: engine_include_dirs,
+    cpp_args: common_engine_defs + ['-DID_DEDICATED'] + engine_pch_args,
+    dependencies: test_deps + [threads_dep],
+    link_args: test_link_args,
+    install: false,
+  )
+  test('dht-loopback', dht_loopback_test, suite: 'unit', timeout: 60)
 endif
 
 # 5c. Retail data discovery (ledger 068): the base/pak000.pk4 marker in any case,

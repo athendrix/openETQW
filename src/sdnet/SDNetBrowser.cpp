@@ -12,7 +12,10 @@ Here each tab is filled by asking the servers themselves (ServerQuery.h):
   LAN        a broadcast to the server port (27733), to 255.255.255.255 and to each
              interface's subnet, the servers found by the slow sweep below, and the
              saved server list;
-  Internet   the saved server list (net_serverList, edited with addServer, removeServer);
+  Internet   the saved server list (net_serverList, edited with addServer, removeServer),
+             the servers found through the BitTorrent DHT (Dht.h) and those found before
+             (servercache.dat, ServerCache.h: hidden when they do not answer, forgotten a
+             month after their last answer);
   History    the last servers joined (written here when a connect is accepted);
   Favorites  the servers starred in the browser.
 The profile, which holds the history and the favorites, is saved to the save path
@@ -52,6 +55,10 @@ SDNet_BrowserFrame, so the tasks' locks have nothing to guard.
 #include "LanDiscovery.h"
 #include "../sys/LocalSubnets.h"
 #include "../sys/NetAddress.h"
+#include "Dht.h"
+#include "ServerCache.h"
+
+#include <ctime>
 
 #include <condition_variable>
 #include <deque>
@@ -77,6 +84,10 @@ const int BROWSER_NO_PING			= 999;		// what the game shows as no answer
 const int LAN_RESWEEP_MSEC			= 5 * 60 * 1000;	// a LAN search sweeps again once the last sweep is this old
 const int LAN_MAX_SUBNETS			= 16;
 const int LAN_MAX_SERVERS			= 64;		// servers the sweeps and broadcasts have found
+const int BROWSER_INTERNET_MSEC		= 15000;	// an Internet search ends this long after it starts
+const int BROWSER_INTERNET_MIN_MSEC	= 8000;		// and waits at least this long for the DHT's finds
+const int DHT_MAX_NEW_PER_SEARCH	= 256;		// addresses the DHT may add to one search (a DHT node can name any address)
+const char SERVER_CACHE_FILE[]		= "servercache.dat";
 const int BOOK_MAX_ADDRESSES		= 8;		// addresses kept for a saved server
 const int BOOK_MAX_SERVERS			= 64;
 const char BOOK_PREFIX[]			= "serverAddresses_";
@@ -163,7 +174,7 @@ private:
 
 class sdNetTaskBrowser : public sdNetTask {
 public:
-	sdNetTaskBrowser() : state( TS_PENDING ), findList( NULL ), deadline( 0 ), lan( false ) {}
+	sdNetTaskBrowser() : state( TS_PENDING ), findList( NULL ), deadline( 0 ), lan( false ), internet( false ), dhtAdded( 0 ) {}
 
 	virtual void				Cancel( bool ) { state = TS_DONE; }
 	virtual taskStatus_e		GetState() const { return state; }
@@ -175,6 +186,8 @@ public:
 	idList< sdNetSession* >*	findList;	// a find appends the servers that answer; NULL for a refresh
 	int							deadline;
 	bool						lan;		// a LAN search: takes the servers the sweep finds while it runs
+	bool						internet;	// an Internet search: takes the servers the DHT finds while it runs
+	int							dhtAdded;
 };
 
 /*
@@ -308,7 +321,7 @@ struct query_t {
 
 class sdServerBrowser {
 public:
-	sdServerBrowser() : nextNonce( 1 ), nextId( 1 ), sweepNonce( 0 ), sweepNext( 0 ), sweepLastSend( 0 ), sweepEnded( 0 ), sweepRunning( false ), scanned( false ) {}
+	sdServerBrowser() : nextNonce( 1 ), nextId( 1 ), sweepNonce( 0 ), sweepNext( 0 ), sweepLastSend( 0 ), sweepEnded( 0 ), sweepRunning( false ), scanned( false ), cacheLoaded( false ), cacheDirty( false ) {}
 
 	sdNetSession* AllocSession( const netadr_t* address ) {
 		netadr_t adr;
@@ -360,6 +373,21 @@ public:
 			for ( int i = 0; i < listed.Num(); i++ ) {
 				AddQueryOnce( task, listed[ i ] );
 			}
+		}
+		if ( internet ) {
+			// what the DHT found before, then what it finds now
+			task->internet = true;
+			task->deadline = Sys_Milliseconds() + BROWSER_INTERNET_MSEC;
+			LoadCache();
+			std::vector< std::string > cached;
+			cache.ToAsk( cached );
+			for ( size_t i = 0; i < cached.size(); i++ ) {
+				netadr_t adr;
+				if ( Sys_StringToNetAdr( cached[ i ].c_str(), &adr, false ) && NetAdr_IsIP( adr ) && adr.port != 0 ) {
+					AddQueryOnce( task, adr );
+				}
+			}
+			DHT_Search();
 		}
 		// repeater sources (ETQW TV) have nothing to find
 		if ( !lan && !internet ) {
@@ -420,6 +448,9 @@ public:
 			if ( query.tries >= BROWSER_TRIES ) {
 				if ( !query.broadcast ) {
 					query.stage = QS_DONE;
+					if ( query.task->internet && cache.Unanswered( Sys_NetAdrToString( query.address ), time( NULL ) ) ) {
+						cacheDirty = true;
+					}
 					if ( query.session != NULL && !query.fallback ) {
 						TryOtherAddresses( query, now );	// may add queries; query is not used after this
 					}
@@ -445,8 +476,9 @@ public:
 					outstanding = true;
 				}
 			}
-			if ( now >= task->deadline || !outstanding ) {
+			if ( now >= task->deadline || ( !outstanding && !( task->internet && now < task->deadline - BROWSER_INTERNET_MSEC + BROWSER_INTERNET_MIN_MSEC ) ) ) {
 				task->state = sdNetTask::TS_DONE;
+				SaveCache();
 				for ( int j = queries.Num() - 1; j >= 0; j-- ) {
 					if ( queries[ j ].task == task ) {
 						RemoveQuery( j );
@@ -472,6 +504,8 @@ public:
 	bool LanServerSeen() const { return lanServers.Num() > 0; }
 
 	void Shutdown() {
+		SaveCache();
+		DHT_Stop( &port );
 		solver.Stop();
 		sweepRunning = false;
 		sweepTargets.clear();
@@ -531,7 +565,67 @@ private:
 			common->Warning( "server browser: couldn't open a network port" );
 			return false;
 		}
+		// a client's DHT node runs on the browser's port (a dedicated server's on its own)
+		if ( !idAsyncNetwork::serverDedicated.GetBool() && DHT_Start( &port ) ) {
+			DHT_SetPeerFunc( DhtPeer );
+		}
 		return true;
+	}
+
+public:
+	// a listen server's announce (SDNet_BrowserAnnounce)
+	void Announce( int gamePort ) {
+		if ( gamePort != 0 && !InitPort() ) {
+			return;
+		}
+		if ( DHT_RunningOn( &port ) ) {
+			DHT_SetAnnouncePort( gamePort );
+		}
+	}
+
+private:
+	// an address the DHT named: kept, and asked by the Internet searches running
+	static void DhtPeer( const netadr_t& peer );
+	void Heard( const netadr_t& peer ) {
+		LoadCache();
+		cache.Heard( Sys_NetAdrToString( peer ), time( NULL ) );
+		cacheDirty = true;
+		for ( int i = 0; i < tasks.Num(); i++ ) {
+			sdNetTaskBrowser* task = tasks[ i ];
+			if ( task->internet && task->state != sdNetTask::TS_DONE && task->dhtAdded < DHT_MAX_NEW_PER_SEARCH && AddQueryOnce( task, peer ) ) {
+				task->dhtAdded++;
+			}
+		}
+	}
+
+	void LoadCache() {
+		if ( cacheLoaded || fileSystem == NULL ) {
+			return;
+		}
+		cacheLoaded = true;
+		idFile* file = fileSystem->OpenFileRead( SERVER_CACHE_FILE );
+		if ( file == NULL ) {
+			return;
+		}
+		const int length = Min( file->Length(), 1024 * 1024 );
+		std::vector< char > text( length + 1, '\0' );
+		file->Read( text.data(), length );
+		fileSystem->CloseFile( file );
+		cache.Read( text.data() );
+	}
+
+	void SaveCache() {
+		if ( !cacheDirty || fileSystem == NULL ) {
+			return;
+		}
+		cacheDirty = false;
+		idFile* file = fileSystem->OpenFileWrite( SERVER_CACHE_FILE );
+		if ( file == NULL ) {
+			return;
+		}
+		const std::string text = cache.Write();
+		file->Write( text.c_str(), static_cast< int >( text.size() ) );
+		fileSystem->CloseFile( file );
 	}
 
 	query_t& NewQuery( sdNetTaskBrowser* task, sdNetSessionBrowser* session, const netadr_t& address, bool broadcast, int nonce ) {
@@ -554,14 +648,15 @@ private:
 		return query;
 	}
 
-	// a query for a server, unless the task already has one for it
-	void AddQueryOnce( sdNetTaskBrowser* task, const netadr_t& address ) {
+	// a query for a server, unless the task already has one for it; true when asked
+	bool AddQueryOnce( sdNetTaskBrowser* task, const netadr_t& address ) {
 		for ( int i = 0; i < queries.Num(); i++ ) {
 			if ( queries[ i ].task == task && !queries[ i ].broadcast && SameAddress( queries[ i ].address, address ) ) {
-				return;
+				return false;
 			}
 		}
 		AddQuery( task, NULL, address, false );
+		return true;
 	}
 
 	// 255.255.255.255 and each interface's directed broadcast address, on the server port
@@ -1054,6 +1149,12 @@ private:
 			msg.InitWrite( buffer, sizeof( buffer ) );
 			msg.SetSize( size );
 			msg.BeginReading();
+			if ( DHT_IsPacket( buffer, size ) ) {
+				if ( DHT_RunningOn( &port ) ) {
+					DHT_Input( from, buffer, size );
+				}
+				continue;
+			}
 			if ( msg.ReadShort() != CONNECTIONLESS_MESSAGE_ID ) {
 				continue;
 			}
@@ -1136,6 +1237,10 @@ private:
 				return;
 			}
 			query.stage = QS_DONE;
+			if ( query.task->internet || cache.Find( Sys_NetAdrToString( from ) ) != NULL ) {
+				cache.Answered( Sys_NetAdrToString( from ), time( NULL ) );
+				cacheDirty = true;
+			}
 			// copies: AddQuery can move the query list
 			sdNetTaskBrowser* task = query.task;
 			sdNetSessionBrowser* querySession = query.session;
@@ -1183,7 +1288,18 @@ private:
 	bool						sweepRunning;
 	bool						scanned;		// the sweep has run at least once
 	idList< netadr_t >			lanServers;		// servers on the LAN that answered
+
+	// the servers the DHT found (ServerCache.h)
+	sdServerCache				cache;
+	bool						cacheLoaded;
+	bool						cacheDirty;
 };
+
+sdServerBrowser& Browser();
+
+void sdServerBrowser::DhtPeer( const netadr_t& peer ) {
+	Browser().Heard( peer );
+}
 
 sdServerBrowser* browser = NULL;
 
@@ -1411,6 +1527,14 @@ void SDNet_BrowserFrame( void ) {
 		browser->Frame();
 		ConsoleQueryFrame();
 	}
+	DHT_Frame();
+}
+
+void SDNet_BrowserAnnounce( int gamePort ) {
+	if ( gamePort == 0 && browser == NULL ) {
+		return;
+	}
+	Browser().Announce( gamePort );
 }
 
 bool SDNet_BrowserLanServerSeen( void ) {
@@ -1433,7 +1557,8 @@ void SDNet_BrowserRegisterCommands( void ) {
 	cmdSystem->AddCommand( "addServer", AddServer_f, CMD_FL_SYSTEM, "adds a server (host or host:port) to the menu's server list" );
 	cmdSystem->AddCommand( "removeServer", RemoveServer_f, CMD_FL_SYSTEM, "removes a server from the menu's server list" );
 	cmdSystem->AddCommand( "serverList", ServerList_f, CMD_FL_SYSTEM, "prints the menu's server list" );
-	cmdSystem->AddCommand( "queryServers", QueryServers_f, CMD_FL_SYSTEM, "asks the servers in the server list (and with 'lan', the LAN) and prints their answers" );
+	cmdSystem->AddCommand( "queryServers", QueryServers_f, CMD_FL_SYSTEM, "asks the servers in the server list and those the DHT finds (with 'lan', the LAN) and prints their answers" );
+	DHT_RegisterCommands();
 }
 
 /*

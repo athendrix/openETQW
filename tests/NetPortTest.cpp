@@ -86,6 +86,16 @@ idCVar * idCVar::staticVars = NULL;
 idCVarSystem * cvarSystem = NULL;
 idFileSystem * fileSystem = NULL;
 
+// cvars read 0 until a cvar system registers them (none here): set the ones the code reads
+struct TestCVar : public idCVar {
+	static void Set( idCVar& cvar, int value ) {
+		TestCVar& poked = static_cast< TestCVar& >( cvar );
+		poked.integerValue = value;
+		poked.floatValue = static_cast< float >( value );
+	}
+};
+extern idCVar net_ipv6;
+
 int Sys_Milliseconds( void ) {
 	struct timespec now;
 	clock_gettime( CLOCK_MONOTONIC, &now );
@@ -117,6 +127,7 @@ static bool HostHasIPv6() {
 }
 
 int main() {
+	TestCVar::Set( net_ipv6, 1 );
 	idPort server, client;
 	Expect( server.InitForPort( PORT_ANY ), "a server port" );
 	Expect( client.InitForPort( PORT_ANY ), "a client port" );

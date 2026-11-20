@@ -73,6 +73,10 @@ RULES = [
     ("openETQW", "src/libs/tweetnacl/tweetnacl.c", ("ThirdParty", "LicenseRef-PublicDomain")),
     ("openETQW", "src/libs/tweetnacl/tweetnacl.h", ("ThirdParty", "LicenseRef-PublicDomain")),
     ("openETQW", "LICENSES/third-party/tweetnacl.txt", ("ThirdParty", "LicenseRef-PublicDomain")),
+    # jech/dht, unchanged (src/libs/dht/README.md): MIT
+    ("openETQW", "src/libs/dht/dht.c", ("ThirdParty", "MIT")),
+    ("openETQW", "src/libs/dht/dht.h", ("ThirdParty", "MIT")),
+    ("openETQW", "LICENSES/third-party/jech-dht.txt", ("ThirdParty", "MIT")),
     # upstream Mesa commits backported unmodified to the bundled KosmicKrisp (#448); one rule per
     # file, so a project file added under tools/build/macos keeps its own licence
     ("openETQW", "tools/build/macos/mesa-kk-wait-for-drawable.patch", ("ThirdParty", "MIT")),
