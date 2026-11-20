@@ -26,7 +26,7 @@ static bool IsServerAddress( const netadr_t from, const netadr_t server ) {
 	if ( !Sys_CompareNetAdrBase( from, server ) ) {
 		return false;
 	}
-	return from.type != NA_IP || server.type != NA_IP || from.port == server.port;
+	return !NetAdr_IsIP( from ) || !NetAdr_IsIP( server ) || from.port == server.port;
 }
 
 static idCVar net_clientShowSnapshots( "net_clientShowSnapshots", "0", CVAR_SYSTEM | CVAR_BOOL | CVAR_NOCHEAT, "print a line for every snapshot the client reads (network tests)" );

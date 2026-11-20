@@ -92,10 +92,13 @@ static_assert( offsetof( usercmd_t, clientButtons ) == 26, "usercmd_t::clientBut
 // ----------------------------------------------------------------------------
 // 3. Network Endpoint & Math Assertions
 // ----------------------------------------------------------------------------
-static_assert( sizeof( netadr_t ) == 12, "netadr_t must be 12 bytes" );
+// the retail fields keep their places; IPv6 (NA_IP6) follows them
+static_assert( sizeof( netadr_t ) == 32, "netadr_t must be 32 bytes" );
 static_assert( offsetof( netadr_t, type ) == 0, "netadr_t::type offset" );
 static_assert( offsetof( netadr_t, ip ) == 4, "netadr_t::ip offset" );
 static_assert( offsetof( netadr_t, port ) == 8, "netadr_t::port offset" );
+static_assert( offsetof( netadr_t, ip6 ) == 10, "netadr_t::ip6 offset" );
+static_assert( offsetof( netadr_t, scope ) == 28, "netadr_t::scope offset" );
 
 static_assert( sizeof( idVec2 ) == 8, "idVec2 must be 8 bytes" );
 static_assert( sizeof( idVec3 ) == 12, "idVec3 must be 12 bytes" );
@@ -143,6 +146,6 @@ static_assert( offsetof( gameImport_t, wideStringAllocator ) == 22 * sizeof( voi
 static_assert( offsetof( gameImport_t, graphManager ) == 23 * sizeof( void * ), "gameImport_t::graphManager offset" );
 
 int main() {
-    printf( "StructLayoutTest: ALL STATIC ASSERTIONS PASSED (idDrawVert 32B, usercmd_t 28B, netadr_t 12B, gameExport_t 24B, gameImport_t 192B)\n" );
+    printf( "StructLayoutTest: ALL STATIC ASSERTIONS PASSED (idDrawVert 32B, usercmd_t 28B, netadr_t 32B, gameExport_t 24B, gameImport_t 192B)\n" );
     return 0;
 }

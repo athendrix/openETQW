@@ -85,6 +85,17 @@ server_identity_test = executable(
 )
 test('server-identity', server_identity_test, suite: 'unit', timeout: 30)
 
+# IPv6 address text, classification and the /64 key
+net_address_test = executable(
+  'openetqw-net-address-test',
+  files('NetAddressTest.cpp'),
+  include_directories: test_include_dirs,
+  dependencies: test_deps,
+  link_args: test_link_args,
+  install: false,
+)
+test('net-address', net_address_test, suite: 'unit', timeout: 30)
+
 # 2. UserCmd delta serialization & sequence test
 usercmd_test_src = files(
   'UserCmdDeltaTest.cpp',
@@ -263,6 +274,24 @@ msgchannel_test = executable(
   install: false,
 )
 test('msgchannel', msgchannel_test, suite: 'unit', timeout: 30)
+
+# 5b2. The platform port (posix_net.cpp) on loopback: IPv4, and IPv6 where the host has it;
+#      address text with IPv6
+if host_system != 'windows'
+  net_port_test = executable(
+    'openetqw-net-port-test',
+    files(
+      'NetPortTest.cpp',
+      meson.project_source_root() / 'src' / 'sys' / 'posix' / 'posix_net.cpp',
+    ),
+    include_directories: engine_include_dirs,
+    cpp_args: common_engine_defs + ['-DID_DEDICATED'] + engine_pch_args,
+    dependencies: test_deps + [threads_dep],
+    link_args: test_link_args,
+    install: false,
+  )
+  test('net-port', net_port_test, suite: 'unit', timeout: 30)
+endif
 
 # 5c. Retail data discovery (ledger 068): the base/pak000.pk4 marker in any case,
 #     path lists, the stored path, Steam's libraryfolders.vdf and steamapps/common,

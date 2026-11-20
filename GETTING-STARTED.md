@@ -154,7 +154,12 @@ set net_serverPublicAddress "203.0.113.7"
 ```
 
 (a host name works too, and `:port` when it is not `net_port`; several separated by
-spaces). The server lists it, with its LAN addresses, in the answer it signs.
+spaces). The server lists it, with its global IPv6 addresses and its LAN addresses, in the
+answer it signs.
+
+**IPv6:** the game and the server use IPv6 next to IPv4 on the same port number (open
+UDP 27733 for both in the firewall); a LAN search also asks every IPv6 neighbour.
+`net_ipv6 0` turns IPv6 off.
 
 ## 5. Joining
 
@@ -173,7 +178,8 @@ spaces). The server lists it, with its LAN addresses, in the answer it signs.
   addServer your.server.address
   ```
 
-  `addServer host:port` for a server not on port 27733; `removeServer` and `serverList`
+  `addServer host:port` for a server not on port 27733, and `addServer [2001:db8::7]` or
+  `addServer [2001:db8::7]:27734` for an IPv6 address; `removeServer` and `serverList`
   edit and show the list. It is saved with your settings.
 - **History** lists the last ten servers you joined, and **Favorites** the ones you
   starred. Both are saved too. A starred server is remembered by its identity with all

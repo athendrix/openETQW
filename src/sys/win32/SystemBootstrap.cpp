@@ -36,6 +36,7 @@
 #include "../../framework/Session_local.h"
 #include "../URLPolicy.h"
 #include "../LocalSubnets.h"
+#include "../NetAddress.h"
 
 // Instantiation of system localization and sysLocal interfaces for Windows builds
 const char * sysLanguageNames[] = {
@@ -151,8 +152,31 @@ time_t MakeTime( const sysTime_t& source ) {
 	return mktime( &value );
 }
 
-void SockaddrFromNetadr( const netadr_t& address, sockaddr_in& socketAddress ) {
-	memset( &socketAddress, 0, sizeof( socketAddress ) );
+// an NA_IP6 address, with the key in ip (NetAddress.h)
+void SetIPv6( netadr_t& address, const uint8_t ip6[ 16 ], unsigned int scope, unsigned short port ) {
+	memset( &address, 0, sizeof( address ) );
+	address.type = NA_IP6;
+	memcpy( address.ip6, ip6, 16 );
+	address.scope = NA_IsLinkLocalIPv6( ip6 ) ? scope : 0;
+	address.port = port;
+	NA_Key32( ip6, address.ip );
+}
+
+// the socket address and its size, 0 for an address no socket sends to
+int SockaddrFromNetadr( const netadr_t& address, sockaddr_storage& storage ) {
+	memset( &storage, 0, sizeof( storage ) );
+	if ( address.type == NA_IP6 ) {
+		sockaddr_in6& socketAddress = reinterpret_cast< sockaddr_in6& >( storage );
+		socketAddress.sin6_family = AF_INET6;
+		socketAddress.sin6_port = htons( address.port );
+		memcpy( &socketAddress.sin6_addr, address.ip6, 16 );
+		socketAddress.sin6_scope_id = address.scope;
+		return sizeof( socketAddress );
+	}
+	if ( address.type != NA_IP && address.type != NA_BROADCAST && address.type != NA_LOOPBACK ) {
+		return 0;
+	}
+	sockaddr_in& socketAddress = reinterpret_cast< sockaddr_in& >( storage );
 	socketAddress.sin_family = AF_INET;
 	socketAddress.sin_port = htons( address.port );
 	memcpy( &socketAddress.sin_addr, address.ip, sizeof( address.ip ) );
@@ -161,12 +185,90 @@ void SockaddrFromNetadr( const netadr_t& address, sockaddr_in& socketAddress ) {
 	} else if ( address.type == NA_LOOPBACK ) {
 		socketAddress.sin_addr.s_addr = htonl( INADDR_LOOPBACK );
 	}
+	return sizeof( socketAddress );
 }
 
-void NetadrFromSockaddr( const sockaddr_in& socketAddress, netadr_t& address ) {
-	address.type = NA_IP;
-	memcpy( address.ip, &socketAddress.sin_addr, sizeof( address.ip ) );
-	address.port = ntohs( socketAddress.sin_port );
+bool NetadrFromSockaddr( const sockaddr_storage& storage, netadr_t& address ) {
+	if ( storage.ss_family == AF_INET ) {
+		const sockaddr_in& socketAddress = reinterpret_cast< const sockaddr_in& >( storage );
+		memset( &address, 0, sizeof( address ) );
+		address.type = NA_IP;
+		memcpy( address.ip, &socketAddress.sin_addr, sizeof( address.ip ) );
+		address.port = ntohs( socketAddress.sin_port );
+		return true;
+	}
+	if ( storage.ss_family == AF_INET6 ) {
+		const sockaddr_in6& socketAddress = reinterpret_cast< const sockaddr_in6& >( storage );
+		const uint8_t* bytes = reinterpret_cast< const uint8_t* >( &socketAddress.sin6_addr );
+		if ( NA_IsV4Mapped( bytes ) ) {
+			memset( &address, 0, sizeof( address ) );
+			address.type = NA_IP;
+			memcpy( address.ip, bytes + 12, 4 );
+			address.port = ntohs( socketAddress.sin6_port );
+			return true;
+		}
+		SetIPv6( address, bytes, socketAddress.sin6_scope_id, ntohs( socketAddress.sin6_port ) );
+		return true;
+	}
+	return false;
+}
+
+// one datagram from a socket (-1: none)
+bool ReadSocket( int socketHandle, netadr_t& from, void* data, int& size, int maxSize ) {
+	if ( socketHandle == -1 ) {
+		return false;
+	}
+	sockaddr_storage address;
+	int addressLength = sizeof( address );
+	const int received = recvfrom( static_cast< SOCKET >( socketHandle ), static_cast< char* >( data ), maxSize, 0, reinterpret_cast< sockaddr* >( &address ), &addressLength );
+	if ( received == SOCKET_ERROR || received <= 0 || !NetadrFromSockaddr( address, from ) ) {
+		return false;
+	}
+	size = received;
+	return true;
+}
+
+// a non-blocking UDP socket bound to the port (0: any), or INVALID_SOCKET
+SOCKET OpenSocket( int family, int port ) {
+	SOCKET socketHandle = socket( family, SOCK_DGRAM, IPPROTO_UDP );
+	if ( socketHandle == INVALID_SOCKET ) {
+		return INVALID_SOCKET;
+	}
+	// By default a Windows UDP socket turns an ICMP port-unreachable (a peer that
+	// went away) into a WSAECONNRESET from the next recvfrom, which ended the
+	// frame's receive loop early while that client timed out.  POSIX reports
+	// nothing on an unconnected UDP socket; do the same.
+	BOOL reportConnectionReset = FALSE;
+	DWORD returned = 0;
+	WSAIoctl( socketHandle, SIO_UDP_CONNRESET, &reportConnectionReset, sizeof( reportConnectionReset ),
+		NULL, 0, &returned, NULL, NULL );
+	u_long nonBlocking = 1;
+	ioctlsocket( socketHandle, FIONBIO, &nonBlocking );
+	sockaddr_storage storage;
+	memset( &storage, 0, sizeof( storage ) );
+	int size;
+	if ( family == AF_INET ) {
+		BOOL broadcast = TRUE;
+		setsockopt( socketHandle, SOL_SOCKET, SO_BROADCAST, reinterpret_cast< const char* >( &broadcast ), sizeof( broadcast ) );
+		sockaddr_in& address = reinterpret_cast< sockaddr_in& >( storage );
+		address.sin_family = AF_INET;
+		address.sin_addr.s_addr = INADDR_ANY;
+		address.sin_port = htons( static_cast< u_short >( port ) );
+		size = sizeof( address );
+	} else {
+		// IPv6 only: IPv4 stays on its own socket, which can broadcast
+		DWORD only = 1;
+		setsockopt( socketHandle, IPPROTO_IPV6, IPV6_V6ONLY, reinterpret_cast< const char* >( &only ), sizeof( only ) );
+		sockaddr_in6& address = reinterpret_cast< sockaddr_in6& >( storage );
+		address.sin6_family = AF_INET6;	// the address stays ::, any
+		address.sin6_port = htons( static_cast< u_short >( port ) );
+		size = sizeof( address );
+	}
+	if ( bind( socketHandle, reinterpret_cast< sockaddr* >( &storage ), size ) == SOCKET_ERROR ) {
+		closesocket( socketHandle );
+		return INVALID_SOCKET;
+	}
+	return socketHandle;
 }
 
 }
@@ -1828,6 +1930,7 @@ static void Net_PurgeSocket( int netSocket ) {
 
 idPort::idPort() :
 	netSocket( -1 ),
+	netSocket6( -1 ),
 	silent( false ),
 	packetsRead( 0 ),
 	bytesRead( 0 ),
@@ -1841,39 +1944,36 @@ idPort::~idPort() {
 	Close();
 }
 
+idCVar net_ipv6( "net_ipv6", "1", CVAR_SYSTEM | CVAR_BOOL | CVAR_NOCHEAT, "also use IPv6: each network port opens an IPv6 socket next to its IPv4 one" );
+
 bool idPort::InitForPort( int portNumber ) {
 	Close();
-	SOCKET socketHandle = socket( AF_INET, SOCK_DGRAM, IPPROTO_UDP );
+	const int wanted = ( portNumber == PORT_ANY || portNumber < 0 ) ? 0 : portNumber;
+	SOCKET socketHandle = OpenSocket( AF_INET, wanted );
 	if ( socketHandle == INVALID_SOCKET ) {
 		return false;
 	}
-	// By default a Windows UDP socket turns an ICMP port-unreachable (a peer that
-	// went away) into a WSAECONNRESET from the next recvfrom, which ended the
-	// frame's receive loop early while that client timed out.  POSIX reports
-	// nothing on an unconnected UDP socket; do the same.
-	BOOL reportConnectionReset = FALSE;
-	DWORD returned = 0;
-	WSAIoctl( socketHandle, SIO_UDP_CONNRESET, &reportConnectionReset, sizeof( reportConnectionReset ),
-		NULL, 0, &returned, NULL, NULL );
-	u_long nonBlocking = 1;
-	ioctlsocket( socketHandle, FIONBIO, &nonBlocking );
-	BOOL broadcast = TRUE;
-	setsockopt( socketHandle, SOL_SOCKET, SO_BROADCAST, reinterpret_cast< const char* >( &broadcast ), sizeof( broadcast ) );
 	sockaddr_in address;
 	memset( &address, 0, sizeof( address ) );
-	address.sin_family = AF_INET;
-	address.sin_addr.s_addr = INADDR_ANY;
-	address.sin_port = htons( portNumber == PORT_ANY ? 0 : portNumber );
-	if ( bind( socketHandle, reinterpret_cast< sockaddr* >( &address ), sizeof( address ) ) == SOCKET_ERROR ) {
-		closesocket( socketHandle );
-		return false;
-	}
 	int addressLength = sizeof( address );
 	getsockname( socketHandle, reinterpret_cast< sockaddr* >( &address ), &addressLength );
 	netSocket = static_cast< int >( socketHandle );
 	bound_to.type = NA_IP;
 	memset( bound_to.ip, 0, sizeof( bound_to.ip ) );
 	bound_to.port = ntohs( address.sin_port );
+
+	// IPv6 on the same port; a client's port can be any free one
+	if ( net_ipv6.GetBool() ) {
+		SOCKET socket6 = OpenSocket( AF_INET6, bound_to.port );
+		if ( socket6 == INVALID_SOCKET && wanted == 0 ) {
+			socket6 = OpenSocket( AF_INET6, 0 );
+		}
+		if ( socket6 != INVALID_SOCKET ) {
+			netSocket6 = static_cast< int >( socket6 );
+		} else {
+			common->DPrintf( "idPort::InitForPort: no IPv6 on port %d\n", bound_to.port );
+		}
+	}
 	return true;
 }
 
@@ -1882,6 +1982,10 @@ void idPort::Close() {
 		Net_PurgeSocket( netSocket );
 		closesocket( static_cast< SOCKET >( netSocket ) );
 		netSocket = -1;
+	}
+	if ( netSocket6 != -1 ) {
+		closesocket( static_cast< SOCKET >( netSocket6 ) );
+		netSocket6 = -1;
 	}
 	bound_to.type = NA_BAD;
 	bound_to.port = 0;
@@ -1898,16 +2002,12 @@ bool idPort::GetPacket( netadr_t &from, void *data, int &size, int maxSize ) {
 	const int reorderPercent = idMath::ClampInt( 0, 100, net_forceReorder.GetInteger() );
 	const int reorderDelay = idMath::ClampInt( 1, 10000, net_forceReorderDelay.GetInteger() );	// within MSVC's RAND_MAX (32767)
 	if ( latency == 0 && jitter == 0 && reorderPercent == 0 && delayedPackets.Num() == 0 ) {
-		sockaddr_in address;
-		int addressLength = sizeof( address );
-		const int received = recvfrom( static_cast< SOCKET >( netSocket ), static_cast< char* >( data ), maxSize, 0, reinterpret_cast< sockaddr* >( &address ), &addressLength );
-		if ( received == SOCKET_ERROR ) {
+		if ( !ReadSocket( netSocket, from, data, size, maxSize ) && !ReadSocket( netSocket6, from, data, size, maxSize ) ) {
+			size = 0;
 			return false;
 		}
-		NetadrFromSockaddr( address, from );
-		size = received;
 		packetsRead++;
-		bytesRead += received;
+		bytesRead += size;
 		return true;
 	}
 
@@ -1915,9 +2015,7 @@ bool idPort::GetPacket( netadr_t &from, void *data, int &size, int maxSize ) {
 	const int now = Sys_Milliseconds();
 	netadr_t packetFrom;
 	int packetSize = 0;
-	sockaddr_in address;
-	int addressLength = sizeof( address );
-	while ( ( packetSize = recvfrom( static_cast< SOCKET >( netSocket ), static_cast< char* >( data ), maxSize, 0, reinterpret_cast< sockaddr* >( &address ), &addressLength ) ) > 0 ) {
+	while ( ReadSocket( netSocket, packetFrom, data, packetSize, maxSize ) || ReadSocket( netSocket6, packetFrom, data, packetSize, maxSize ) ) {
 		delayedPacket_t* packet = new delayedPacket_t;
 		packet->socket = netSocket;
 		const int wanted = now + latency + ( jitter > 0 ? rand() % ( jitter + 1 ) : 0 );
@@ -1930,11 +2028,10 @@ bool idPort::GetPacket( netadr_t &from, void *data, int &size, int maxSize ) {
 			packet->releaseTime = Net_ReleaseTime( netSocket, wanted );
 		}
 		packet->sequence = ++Net_SocketRelease( netSocket )->arrived;
-		NetadrFromSockaddr( address, packet->from );
+		packet->from = packetFrom;
 		packet->data.SetNum( packetSize );
 		memcpy( &packet->data[ 0 ], data, packetSize );
 		delayedPackets.Append( packet );
-		addressLength = sizeof( address );
 	}
 
 	// hand out the due packet of this socket that is released first
@@ -1985,6 +2082,9 @@ bool idPort::GetPacketBlocking( netadr_t &from, void *data, int &size, int maxSi
 	fd_set readSet;
 	FD_ZERO( &readSet );
 	FD_SET( static_cast< SOCKET >( netSocket ), &readSet );
+	if ( netSocket6 != -1 ) {
+		FD_SET( static_cast< SOCKET >( netSocket6 ), &readSet );
+	}
 	timeval wait;
 	wait.tv_sec = timeout / 1000;
 	wait.tv_usec = ( timeout % 1000 ) * 1000;
@@ -2007,9 +2107,13 @@ void idPort::SendPacket( const netadr_t to, const void *data, int size ) {
 		return;
 	}
 
-	sockaddr_in address;
-	SockaddrFromNetadr( to, address );
-	const int sent = sendto( static_cast< SOCKET >( netSocket ), static_cast< const char* >( data ), size, 0, reinterpret_cast< sockaddr* >( &address ), sizeof( address ) );
+	sockaddr_storage address;
+	const int addressSize = SockaddrFromNetadr( to, address );
+	const int sendSocket = to.type == NA_IP6 ? netSocket6 : netSocket;
+	if ( addressSize == 0 || sendSocket == -1 ) {
+		return;
+	}
+	const int sent = sendto( static_cast< SOCKET >( sendSocket ), static_cast< const char* >( data ), size, 0, reinterpret_cast< sockaddr* >( &address ), addressSize );
 	if ( sent != SOCKET_ERROR ) {
 		packetsWritten++;
 		bytesWritten += sent;
@@ -2028,44 +2132,98 @@ bool Sys_StringToNetAdr( const char *text, netadr_t *address, bool doDNSResolve 
 	}
 
 	char host[ 256 ];
-	idStr::Copynz( host, text, sizeof( host ) );
-	char* portText = strrchr( host, ':' );
 	int port = 0;
-	if ( portText != NULL ) {
-		*portText++ = '\0';
-		port = atoi( portText );
+	if ( !NA_SplitHostPort( text, host, sizeof( host ), &port ) ) {
+		return false;
 	}
-	address->port = static_cast< unsigned short >( port );
 	// "localhost" with a port too, without a DNS lookup (callers may pass
 	// doDNSResolve false)
 	if ( idStr::Icmp( host, "localhost" ) == 0 ) {
 		address->type = NA_LOOPBACK;
+		address->port = static_cast< unsigned short >( port );
 		return true;
 	}
 
 	unsigned long parsed = inet_addr( host );
-	if ( parsed == INADDR_NONE && doDNSResolve ) {
-		hostent* entry = gethostbyname( host );
-		if ( entry != NULL && entry->h_addr_list[ 0 ] != NULL ) {
-			memcpy( &parsed, entry->h_addr_list[ 0 ], sizeof( parsed ) );
+	if ( parsed != INADDR_NONE || idStr::Cmp( host, "255.255.255.255" ) == 0 ) {
+		address->type = NA_IP;
+		memcpy( address->ip, &parsed, sizeof( address->ip ) );
+		address->port = static_cast< unsigned short >( port );
+		return true;
+	}
+
+	if ( strchr( host, ':' ) != NULL ) {
+		// an IPv6 literal; a zone is the interface's number ("fe80::1%3")
+		unsigned int scope = 0;
+		char* zone = strchr( host, '%' );
+		if ( zone != NULL ) {
+			*zone++ = '\0';
+			char* end = NULL;
+			scope = static_cast< unsigned int >( strtoul( zone, &end, 10 ) );
+			if ( end == zone || *end != '\0' || scope == 0 ) {
+				return false;
+			}
+		}
+		uint8_t ip6[ 16 ];
+		if ( !NA_ParseIPv6( host, ip6 ) ) {
+			return false;
+		}
+		if ( NA_IsV4Mapped( ip6 ) ) {
+			address->type = NA_IP;
+			memcpy( address->ip, ip6 + 12, 4 );
+			address->port = static_cast< unsigned short >( port );
+			return true;
+		}
+		SetIPv6( *address, ip6, scope, static_cast< unsigned short >( port ) );
+		return true;
+	}
+
+	if ( doDNSResolve ) {
+		// IPv4 first, as before IPv6 (any server reachable before still is the same way)
+		addrinfo hints;
+		memset( &hints, 0, sizeof( hints ) );
+		hints.ai_family = AF_UNSPEC;
+		hints.ai_socktype = SOCK_DGRAM;
+		addrinfo* results = NULL;
+		if ( getaddrinfo( host, NULL, &hints, &results ) == 0 ) {
+			bool found = false;
+			for ( int pass = 0; pass < 2 && !found; pass++ ) {
+				for ( addrinfo* result = results; result != NULL && !found; result = result->ai_next ) {
+					if ( ( pass == 0 && result->ai_family != AF_INET ) || ( pass == 1 && result->ai_family != AF_INET6 ) ) {
+						continue;
+					}
+					sockaddr_storage storage;
+					memset( &storage, 0, sizeof( storage ) );
+					memcpy( &storage, result->ai_addr, Min( static_cast< size_t >( result->ai_addrlen ), sizeof( storage ) ) );
+					found = NetadrFromSockaddr( storage, *address );
+				}
+			}
+			freeaddrinfo( results );
+			if ( found ) {
+				address->port = static_cast< unsigned short >( port );
+				return true;
+			}
 		}
 	}
-	if ( parsed == INADDR_NONE ) {
-		address->type = NA_BAD;
-		return false;
-	}
-	address->type = NA_IP;
-	memcpy( address->ip, &parsed, sizeof( address->ip ) );
-	return true;
+	address->type = NA_BAD;
+	return false;
 }
 
 const char *Sys_NetAdrToString( const netadr_t& address ) {
 	// rotating buffers, as posix_net.cpp: a caller may format two addresses in one print
-	static char text[ 4 ][ 64 ];
+	static char text[ 4 ][ 80 ];
 	static int index = 0;
 	index = ( index + 1 ) & 3;
 	if ( address.type == NA_LOOPBACK ) {
 		idStr::snPrintf( text[ index ], sizeof( text[ index ] ), "localhost:%u", address.port );
+	} else if ( address.type == NA_IP6 ) {
+		char ip6[ 48 ];
+		NA_FormatIPv6( address.ip6, ip6, sizeof( ip6 ) );
+		if ( address.scope != 0 ) {
+			idStr::snPrintf( text[ index ], sizeof( text[ index ] ), "[%s%%%u]:%u", ip6, address.scope, address.port );
+		} else {
+			idStr::snPrintf( text[ index ], sizeof( text[ index ] ), "[%s]:%u", ip6, address.port );
+		}
 	} else {
 		idStr::snPrintf( text[ index ], sizeof( text[ index ] ), "%u.%u.%u.%u:%u", address.ip[ 0 ], address.ip[ 1 ], address.ip[ 2 ], address.ip[ 3 ], address.port );
 	}
@@ -2084,6 +2242,9 @@ bool Sys_IsLANAddress( const netadr_t& address ) {
 	if ( address.type == NA_LOOPBACK ) {
 		return true;
 	}
+	if ( address.type == NA_IP6 ) {
+		return NA_IsLANIPv6( address.ip6 );
+	}
 	// received addresses are NA_IP, so 127.x is the local host (as posix_net.cpp)
 	return address.type == NA_IP &&
 		( address.ip[ 0 ] == 10 ||
@@ -2097,7 +2258,7 @@ bool Sys_IsLANAddress( const netadr_t& address ) {
 // machine either way.  Without this, "connect localhost" never matched the
 // server's replies.  (As posix_net.cpp.)
 static bool Net_IsLocalHost( const netadr_t& address ) {
-	return address.type == NA_LOOPBACK || ( address.type == NA_IP && address.ip[ 0 ] == 127 );
+	return address.type == NA_LOOPBACK || ( address.type == NA_IP && address.ip[ 0 ] == 127 ) || ( address.type == NA_IP6 && NA_IsLoopbackIPv6( address.ip6 ) );
 }
 
 bool Sys_CompareNetAdrBase( const netadr_t& a, const netadr_t& b ) {
@@ -2106,6 +2267,9 @@ bool Sys_CompareNetAdrBase( const netadr_t& a, const netadr_t& b ) {
 	}
 	if ( a.type != b.type ) {
 		return false;
+	}
+	if ( a.type == NA_IP6 ) {
+		return memcmp( a.ip6, b.ip6, sizeof( a.ip6 ) ) == 0 && a.scope == b.scope;
 	}
 	return memcmp( a.ip, b.ip, sizeof( a.ip ) ) == 0;
 }
@@ -2133,6 +2297,38 @@ int Sys_GetLocalSubnets( lanSubnet_t* out, int max ) {
 			}
 			out[ count ].address = ntohl( entry.iiAddress.AddressIn.sin_addr.s_addr );
 			out[ count ].mask = ntohl( entry.iiNetmask.AddressIn.sin_addr.s_addr );
+			count++;
+		}
+	}
+	closesocket( probe );
+	return count;
+}
+
+int Sys_GetLocalIPv6( localAddress6_t* out, int max ) {
+	if ( out == NULL || max <= 0 ) {
+		return 0;
+	}
+	SOCKET probe = socket( AF_INET6, SOCK_DGRAM, IPPROTO_UDP );
+	if ( probe == INVALID_SOCKET ) {
+		return 0;
+	}
+	char buffer[ 4096 ];
+	DWORD bytes = 0;
+	int count = 0;
+	if ( WSAIoctl( probe, SIO_ADDRESS_LIST_QUERY, NULL, 0, buffer, sizeof( buffer ), &bytes, NULL, NULL ) == 0 ) {
+		const SOCKET_ADDRESS_LIST* list = reinterpret_cast< const SOCKET_ADDRESS_LIST* >( buffer );
+		for ( int i = 0; i < list->iAddressCount && count < max; i++ ) {
+			const SOCKET_ADDRESS& entry = list->Address[ i ];
+			if ( entry.lpSockaddr == NULL || entry.lpSockaddr->sa_family != AF_INET6 ) {
+				continue;
+			}
+			const sockaddr_in6* in6 = reinterpret_cast< const sockaddr_in6* >( entry.lpSockaddr );
+			const uint8_t* bytes6 = reinterpret_cast< const uint8_t* >( &in6->sin6_addr );
+			if ( NA_IsLoopbackIPv6( bytes6 ) || NA_IsV4Mapped( bytes6 ) ) {
+				continue;
+			}
+			memcpy( out[ count ].address, bytes6, 16 );
+			out[ count ].scope = in6->sin6_scope_id;
 			count++;
 		}
 	}

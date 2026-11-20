@@ -15,6 +15,9 @@
 #include "ServerQuery.h"
 #include "ServerIdentity.h"
 #include "../../sys/LocalSubnets.h"
+#include "../../sys/NetAddress.h"
+
+extern idCVar net_ipv6;
 
 // a connect challenge is good this long after it was handed out
 static const int CHALLENGE_LIFETIME_MSEC = 10000;
@@ -1821,12 +1824,13 @@ const sqIdentity_t& ServerIdentity() {
 	return identity;
 }
 
-// appends "a.b.c.d:port" to the list when it fits and is not there yet
+// appends "a.b.c.d:port" or "[v6]:port" to the list when it fits and is not there yet;
+// never a link-local address, which means nothing off its own link
 void AppendQueryAddress( idStr& list, const netadr_t& address ) {
-	if ( address.type != NA_IP ) {
+	if ( address.type != NA_IP && !( address.type == NA_IP6 && !NA_IsLinkLocalIPv6( address.ip6 ) ) ) {
 		return;
 	}
-	const idStr text = va( "%d.%d.%d.%d:%d", address.ip[ 0 ], address.ip[ 1 ], address.ip[ 2 ], address.ip[ 3 ], address.port );
+	const idStr text = Sys_NetAdrToString( address );
 	idStr padded = va( " %s ", list.c_str() );
 	if ( padded.Find( va( " %s ", text.c_str() ) ) >= 0 ) {
 		return;
@@ -1842,8 +1846,9 @@ void AppendQueryAddress( idStr& list, const netadr_t& address ) {
 
 /*
 The addresses the server's answer lists (si_addrs): net_serverPublicAddress, resolved
-here so a client never has to look up a name a server sent it, then the server's private
-LAN addresses. Rebuilt every minute (a name's address can change) and when the cvar does.
+here so a client never has to look up a name a server sent it, the server's global IPv6
+addresses (reachable as they are, no NAT), then its LAN addresses (private IPv4, unique
+local IPv6). Rebuilt every minute (a name's address can change) and when the cvar does.
 */
 const char* QueryAddresses( int serverPortNumber ) {
 	static idStr addresses;
@@ -1875,7 +1880,7 @@ const char* QueryAddresses( int serverPortNumber ) {
 	}
 	for ( int i = 0; i < entries.Num(); i++ ) {
 		netadr_t address;
-		if ( !Sys_StringToNetAdr( entries[ i ].c_str(), &address, true ) || address.type != NA_IP ) {
+		if ( !Sys_StringToNetAdr( entries[ i ].c_str(), &address, true ) || !NetAdr_IsIP( address ) ) {
 			common->Warning( "net_serverPublicAddress: can't resolve '%s'", entries[ i ].c_str() );
 			continue;
 		}
@@ -1884,21 +1889,40 @@ const char* QueryAddresses( int serverPortNumber ) {
 		}
 		AppendQueryAddress( addresses, address );
 	}
-	lanSubnet_t subnets[ 16 ];
-	const int numSubnets = Sys_GetLocalSubnets( subnets, 16 );
-	for ( int i = 0; i < numSubnets; i++ ) {
-		if ( !LAN_IsPrivate( subnets[ i ].address ) ) {
-			continue;
+	localAddress6_t local6[ 16 ];
+	const int numLocal6 = net_ipv6.GetBool() ? Sys_GetLocalIPv6( local6, 16 ) : 0;
+	for ( int pass = 0; pass < 2; pass++ ) {
+		if ( pass == 1 ) {
+			// the private IPv4 addresses between the global and the unique local IPv6 ones
+			lanSubnet_t subnets[ 16 ];
+			const int numSubnets = Sys_GetLocalSubnets( subnets, 16 );
+			for ( int i = 0; i < numSubnets; i++ ) {
+				if ( !LAN_IsPrivate( subnets[ i ].address ) ) {
+					continue;
+				}
+				netadr_t address;
+				memset( &address, 0, sizeof( address ) );
+				address.type = NA_IP;
+				address.ip[ 0 ] = static_cast< byte >( subnets[ i ].address >> 24 );
+				address.ip[ 1 ] = static_cast< byte >( subnets[ i ].address >> 16 );
+				address.ip[ 2 ] = static_cast< byte >( subnets[ i ].address >> 8 );
+				address.ip[ 3 ] = static_cast< byte >( subnets[ i ].address );
+				address.port = static_cast< unsigned short >( serverPortNumber );
+				AppendQueryAddress( addresses, address );
+			}
 		}
-		netadr_t address;
-		memset( &address, 0, sizeof( address ) );
-		address.type = NA_IP;
-		address.ip[ 0 ] = static_cast< byte >( subnets[ i ].address >> 24 );
-		address.ip[ 1 ] = static_cast< byte >( subnets[ i ].address >> 16 );
-		address.ip[ 2 ] = static_cast< byte >( subnets[ i ].address >> 8 );
-		address.ip[ 3 ] = static_cast< byte >( subnets[ i ].address );
-		address.port = static_cast< unsigned short >( serverPortNumber );
-		AppendQueryAddress( addresses, address );
+		for ( int i = 0; i < numLocal6; i++ ) {
+			const bool global = NA_IsGlobalIPv6( local6[ i ].address );
+			if ( ( pass == 0 ) != global || ( !global && !NA_IsLANIPv6( local6[ i ].address ) ) ) {
+				continue;
+			}
+			netadr_t address;
+			memset( &address, 0, sizeof( address ) );
+			address.type = NA_IP6;
+			memcpy( address.ip6, local6[ i ].address, 16 );
+			address.port = static_cast< unsigned short >( serverPortNumber );
+			AppendQueryAddress( addresses, address );
+		}
 	}
 	return addresses.c_str();
 }
@@ -1921,6 +1945,10 @@ sqQueryGate* QueryGate() {
 bool QueryAddress( const netadr_t& from, uint8_t address[ SQ_ADDRESS_SIZE ] ) {
 	if ( from.type == NA_IP ) {
 		SQ_MakeAddressV4( from.ip, from.port, address );
+		return true;
+	}
+	if ( from.type == NA_IP6 ) {
+		SQ_MakeAddressV6( from.ip6, from.port, address );
 		return true;
 	}
 	if ( from.type == NA_LOOPBACK ) {

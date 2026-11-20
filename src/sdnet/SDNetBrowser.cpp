@@ -51,6 +51,7 @@ SDNet_BrowserFrame, so the tasks' locks have nothing to guard.
 #include "SDNetBrowser.h"
 #include "LanDiscovery.h"
 #include "../sys/LocalSubnets.h"
+#include "../sys/NetAddress.h"
 
 #include <condition_variable>
 #include <deque>
@@ -376,7 +377,7 @@ public:
 		int asked = 0;
 		for ( int i = 0; i < sessions.Num(); i++ ) {
 			sdNetSessionBrowser* session = static_cast< sdNetSessionBrowser* >( sessions[ i ] );
-			if ( session != NULL && session->GetAddress().type == NA_IP ) {
+			if ( session != NULL && NetAdr_IsIP( session->GetAddress() ) ) {
 				AddQuery( task, session, session->GetAddress(), false, true );
 				asked++;
 			}
@@ -487,7 +488,7 @@ public:
 		SplitList( net_serverList.GetString(), entries );
 		for ( int i = 0; i < entries.Num(); i++ ) {
 			netadr_t adr;
-			if ( !Sys_StringToNetAdr( entries[ i ].c_str(), &adr, true ) || adr.type != NA_IP ) {
+			if ( !Sys_StringToNetAdr( entries[ i ].c_str(), &adr, true ) || !NetAdr_IsIP( adr ) ) {
 				common->Printf( "server list: can't resolve '%s'\n", entries[ i ].c_str() );
 				continue;
 			}
@@ -587,6 +588,27 @@ private:
 			bool known = false;
 			for ( int j = 0; j < out.Num() && !known; j++ ) {
 				known = SameAddress( out[ j ], adr );
+			}
+			if ( !known ) {
+				out.Append( adr );
+			}
+		}
+		// IPv6 has no broadcast: all nodes on each interface's link (ff02::1), which a
+		// server's IPv6 socket on the port hears without joining a group
+		localAddress6_t local6[ LAN_MAX_SUBNETS ];
+		const int numLocal6 = Sys_GetLocalIPv6( local6, LAN_MAX_SUBNETS );
+		for ( int i = 0; i < numLocal6; i++ ) {
+			if ( !NA_IsLinkLocalIPv6( local6[ i ].address ) || local6[ i ].scope == 0 ) {
+				continue;	// one per interface: its link-local address carries the index
+			}
+			memset( &adr, 0, sizeof( adr ) );
+			adr.type = NA_IP6;
+			adr.port = PORT_SERVER;
+			NA_ParseIPv6( "ff02::1", adr.ip6 );
+			adr.scope = local6[ i ].scope;
+			bool known = false;
+			for ( int j = 0; j < out.Num() && !known; j++ ) {
+				known = out[ j ].type == NA_IP6 && out[ j ].scope == adr.scope;
 			}
 			if ( !known ) {
 				out.Append( adr );
@@ -751,14 +773,14 @@ private:
 		return false;
 	}
 
-	// si_addrs, parsed: numeric IPv4 host:port only (a server's answer never makes the
-	// client look a name up)
+	// si_addrs, parsed: numeric a.b.c.d:port and [v6]:port only (a server's answer never
+	// makes the client look a name up)
 	static void ParseAddresses( const char* text, idList< netadr_t >& out ) {
 		idStrList entries;
 		SplitList( text != NULL ? text : "", entries );
 		for ( int i = 0; i < entries.Num() && out.Num() < BOOK_MAX_ADDRESSES; i++ ) {
 			netadr_t adr;
-			if ( !IsNumericAddress( entries[ i ].c_str() ) || !Sys_StringToNetAdr( entries[ i ].c_str(), &adr, false ) || adr.type != NA_IP || adr.port == 0 ) {
+			if ( !IsNumericAddress( entries[ i ].c_str() ) || !Sys_StringToNetAdr( entries[ i ].c_str(), &adr, false ) || !NetAdr_IsIP( adr ) || adr.port == 0 ) {
 				continue;
 			}
 			out.Append( adr );
@@ -767,7 +789,7 @@ private:
 
 	static bool IsNumericAddress( const char* text ) {
 		for ( const char* c = text; *c != '\0'; c++ ) {
-			if ( !( ( *c >= '0' && *c <= '9' ) || *c == '.' || *c == ':' ) ) {
+			if ( !( ( *c >= '0' && *c <= '9' ) || ( *c >= 'a' && *c <= 'f' ) || ( *c >= 'A' && *c <= 'F' ) || *c == '.' || *c == ':' || *c == '[' || *c == ']' ) ) {
 				return false;
 			}
 		}
@@ -1200,7 +1222,7 @@ void AddServer_f( const idCmdArgs& args ) {
 	}
 	const char* address = args.Argv( 1 );
 	netadr_t adr;
-	if ( !Sys_StringToNetAdr( address, &adr, true ) || adr.type != NA_IP ) {
+	if ( !Sys_StringToNetAdr( address, &adr, true ) || !NetAdr_IsIP( adr ) ) {
 		common->Printf( "addServer: can't resolve '%s'\n", address );
 		return;
 	}
@@ -1355,7 +1377,7 @@ void SDNet_BrowserServerInfo( const char* address ) {
 		return;
 	}
 	netadr_t adr;
-	if ( address == NULL || !Sys_StringToNetAdr( address, &adr, true ) || adr.type != NA_IP ) {
+	if ( address == NULL || !Sys_StringToNetAdr( address, &adr, true ) || !NetAdr_IsIP( adr ) ) {
 		common->Printf( "serverInfo: can't resolve '%s'\n", address != NULL ? address : "" );
 		return;
 	}
@@ -1423,7 +1445,7 @@ the top of the History tab (serverHistory0..9 in the profile, as the SDK game re
 ================
 */
 void SDNet_BrowserServerJoined( const netadr_t& address ) {
-	if ( networkService == NULL || address.type != NA_IP ) {
+	if ( networkService == NULL || !NetAdr_IsIP( address ) ) {
 		return;
 	}
 	sdNetUser* user = networkService->GetActiveUser();
