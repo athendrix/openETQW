@@ -57,7 +57,9 @@ idCVar				idAsyncNetwork::clientMaxPrediction( "net_clientMaxPrediction", "1000"
 idCVar				idAsyncNetwork::clientUsercmdBackup( "net_clientUsercmdBackup", "5", CVAR_SYSTEM | CVAR_INTEGER | CVAR_NOCHEAT, "number of usercmds to resend" );
 idCVar				idAsyncNetwork::clientRemoteConsoleAddress( "net_clientRemoteConsoleAddress", "localhost", CVAR_SYSTEM | CVAR_NOCHEAT, "remote console address" );
 idCVar				idAsyncNetwork::clientRemoteConsolePassword( "net_clientRemoteConsolePassword", "", CVAR_SYSTEM | CVAR_NOCHEAT, "remote console password" );
-idCVar				idAsyncNetwork::master0( "net_master0", "etqwmaster.idsoftware.com:27733", CVAR_SYSTEM | CVAR_ROM, "idnet master server address" );
+// The retail master servers are gone. OpenETQW never contacts one (MasterHeartbeat is a
+// no-op and nothing resolves these), so the retail default is cleared as well.
+idCVar				idAsyncNetwork::master0( "net_master0", "", CVAR_SYSTEM | CVAR_ROM, "unused: the retail master servers are gone" );
 idCVar				idAsyncNetwork::master1( "net_master1", "", CVAR_SYSTEM | CVAR_ARCHIVE, "1st master server address" );
 idCVar				idAsyncNetwork::master2( "net_master2", "", CVAR_SYSTEM | CVAR_ARCHIVE, "2nd master server address" );
 idCVar				idAsyncNetwork::master3( "net_master3", "", CVAR_SYSTEM | CVAR_ARCHIVE, "3rd master server address" );
