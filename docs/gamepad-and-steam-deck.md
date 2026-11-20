@@ -72,6 +72,17 @@ press leaves the view (recalls the drone) and a long press detonates it. The cla
 ability brings the deploy tool out until you place something or press it again. Repair,
 hack, arm, disarm and revive happen by using the thing (X held, or E).
 
+Anything else retail puts in your hand by itself (the pliers when you use a damaged
+vehicle, the hacking tool at an objective) goes back to your last gun a second after you
+let go of fire and use.
+
+The settings menu's Controls lists are this layout's actions (Grenade, Melee, Super,
+Class ability, Heavy, Swap weapon, Interact, ...), so remapping changes which key is the
+grenade key, as in Destiny; retail's weapon-bank rows are gone
+(`src/game/decls/DestinyKeyBindings.h`). Tooltips that named a retail key ("press 4")
+name the key of the action that does it now. On tools and items the aim button is
+alt-fire (rotate a deployable, throw underhand).
+
 The quick actions (grenade, melee, tool, item) leave you on your gun unless the key is
 held. With `in_gunsOnly 1` (the default) the weapon keys, the wheel and next/previous
 weapon only reach the sidearm and the primary; `seta in_gunsOnly 0` brings back
