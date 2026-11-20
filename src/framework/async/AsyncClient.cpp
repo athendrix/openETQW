@@ -230,7 +230,8 @@ void idAsyncClient::GetServerInfo( const netadr_t adr ) {
 	if ( !InitPort() ) {
 		return;
 	}
-	serverAddress = adr;
+	// the serverInfo command uses the server browser now; this must not touch the
+	// address of the server we are connected to
 	common->DPrintf( "requesting server info from %s\n", Sys_NetAdrToString( adr ) );
 }
 

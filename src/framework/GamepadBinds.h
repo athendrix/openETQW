@@ -76,6 +76,8 @@ static const char* const DESTINY_KEYBOARD_BINDS =
 	"bind ALT \"_speed\"\n"							// walk, vehicle handbrake (retail Ctrl)
 	"bind g \"_context\"\n"							// context requests (retail V)
 	"unbind x\n"									// prone stays on z
+	"unbind F11\n"									// retail screenshot: use the OS's screenshot tool
+	"unbind F12\n"									// retail toggleNetDemo: no demo recording
 	// in vehicles the keys Destiny took back are retail's again: Q and E strafe the
 	// Desecrator (lean), F switches seat or launches decoys, G gets out (E still gets in)
 	"bind q \"_leanleft\" \"\" vehicle\n"

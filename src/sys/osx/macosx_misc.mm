@@ -321,15 +321,8 @@ idSysLocal::OpenURL
 ==================
 */
 void idSysLocal::OpenURL( const char *url, bool doexit ) {
-	static bool	quit_spamguard = false;
-
 	if ( !idURLPolicy::IsAllowedHTTPURL( url ) ) {
 		common->Printf( "OpenURL rejected: expected a bounded HTTP or HTTPS URL with a host\n" );
-		return;
-	}
-
-	if ( quit_spamguard ) {
-		common->DPrintf( "Sys_OpenURL: already in a doexit sequence, ignoring request\n" );
 		return;
 	}
 
@@ -355,10 +348,8 @@ void idSysLocal::OpenURL( const char *url, bool doexit ) {
 		return;
 	}
 
-	if ( doexit ) {
-		quit_spamguard = true;
-		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "quit\n" );
-	}
+	// the game stays open (see sys_local.cpp)
+	( void )doexit;
 }
 
 /*

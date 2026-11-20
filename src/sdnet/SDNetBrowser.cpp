@@ -720,7 +720,8 @@ server operator checking that the server answers, and for the tests.
 struct consoleQuery_t {
 	sdNetTask*				task;
 	idList< sdNetSession* >	sessions;
-	consoleQuery_t() : task( NULL ) {}
+	bool					detail;		// serverInfo: every key and player
+	consoleQuery_t() : task( NULL ), detail( false ) {}
 };
 consoleQuery_t* consoleQuery = NULL;
 
@@ -744,8 +745,27 @@ void ConsoleQueryFrame() {
 	if ( consoleQuery == NULL || consoleQuery->task->GetState() != sdNetTask::TS_DONE ) {
 		return;
 	}
-	common->Printf( "queryServers: %d server%s answered\n", consoleQuery->sessions.Num(), consoleQuery->sessions.Num() == 1 ? "" : "s" );
-	for ( int i = 0; i < consoleQuery->sessions.Num(); i++ ) {
+	if ( consoleQuery->detail ) {
+		sdNetSession* session = consoleQuery->sessions[ 0 ];
+		if ( session->GetPing() >= BROWSER_NO_PING ) {
+			common->Printf( "serverInfo: %s did not answer\n", session->GetHostAddressString() );
+		} else {
+			const idDict& info = session->GetServerInfo();
+			common->Printf( "serverInfo: %s, %d ms\n", session->GetHostAddressString(), session->GetPing() );
+			for ( int i = 0; i < info.GetNumKeyVals(); i++ ) {
+				common->Printf( "  %-24s %s\n", info.GetKeyVal( i )->GetKey().c_str(), info.GetKeyVal( i )->GetValue().c_str() );
+			}
+			common->Printf( "  %d player%s:\n", session->GetNumClients(), session->GetNumClients() == 1 ? "" : "s" );
+			for ( int i = 0; i < session->GetNumClients(); i++ ) {
+				const sdNetSession::sessionClientInfo_t& client = session->GetClientInfo( i );
+				common->Printf( "    %-32s %s\n", client.nickname, client.isBot ? "bot" : va( "%d ms", client.ping ) );
+			}
+		}
+	}
+	if ( !consoleQuery->detail ) {
+		common->Printf( "queryServers: %d server%s answered\n", consoleQuery->sessions.Num(), consoleQuery->sessions.Num() == 1 ? "" : "s" );
+	}
+	for ( int i = 0; i < consoleQuery->sessions.Num() && !consoleQuery->detail; i++ ) {
 		sdNetSession* session = consoleQuery->sessions[ i ];
 		const idDict& info = session->GetServerInfo();
 		const int seconds = session->GetSessionTime() / 1000;
@@ -795,6 +815,33 @@ sdNetTask* sdNetSessionManagerBrowser::RefreshSession( sdNetSession& session ) {
 	idList< sdNetSession* > one;
 	one.Append( &session );
 	return Browser().Refresh( one );
+}
+
+// serverInfo <host[:port]>: one server's settings and players (AsyncNetwork.cpp)
+void SDNet_BrowserServerInfo( const char* address ) {
+	if ( consoleQuery != NULL ) {
+		common->Printf( "serverInfo: still waiting for answers\n" );
+		return;
+	}
+	netadr_t adr;
+	if ( address == NULL || !Sys_StringToNetAdr( address, &adr, true ) || adr.type != NA_IP ) {
+		common->Printf( "serverInfo: can't resolve '%s'\n", address != NULL ? address : "" );
+		return;
+	}
+	if ( adr.port == 0 ) {
+		adr.port = PORT_SERVER;
+	}
+	consoleQuery = new consoleQuery_t;
+	consoleQuery->detail = true;
+	consoleQuery->sessions.Append( Browser().AllocSession( &adr ) );
+	consoleQuery->task = Browser().Refresh( consoleQuery->sessions );
+	if ( consoleQuery->task == NULL ) {
+		Browser().FreeSession( consoleQuery->sessions[ 0 ] );
+		delete consoleQuery;
+		consoleQuery = NULL;
+		return;
+	}
+	common->Printf( "serverInfo: asking %s...\n", Sys_NetAdrToString( adr ) );
 }
 
 void SDNet_BrowserFrame( void ) {

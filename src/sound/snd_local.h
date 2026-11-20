@@ -714,7 +714,8 @@ public:
 	virtual int				GetCaptureRate( void ) const { return 0; }
 	virtual bool			QuerySpeakers( int numSpeakers ) const;
 	virtual void			RefreshSoundDevices( void ) {}
-	virtual const idWStrList*	ListSoundPlaybackDevices() const { return new idWStrList; }
+	virtual const idWStrList*	ListSoundPlaybackDevices() const;
+	// no voice chat (VoIP is not supported), so no capture devices to choose from
 	virtual const idWStrList*	ListSoundCaptureDevices() const { return new idWStrList; }
 	virtual void			FreeDeviceList( const idWStrList* list ) const { delete list; }
 	virtual int				GetAudioDeviceHash( const wchar_t* name ) const;

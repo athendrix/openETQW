@@ -33,6 +33,7 @@
 #include "../sys_package.h"
 #include "../../framework/RetailDiscovery.h"
 #include "../../framework/Session_local.h"
+#include "../URLPolicy.h"
 
 // Instantiation of system localization and sysLocal interfaces for Windows builds
 const char * sysLanguageNames[] = {
@@ -490,13 +491,16 @@ void idSysLocal::ClearEvents() {
 	}
 }
 
+// the game stays open (see sys_local.cpp); only an http or https URL with a host opens,
+// so a menu link can't start a program or open a file (URLPolicy.h)
 void idSysLocal::OpenURL( const char *url, bool quit ) {
-	if ( url != NULL ) {
-		ShellExecuteA( NULL, "open", url, NULL, NULL, SW_SHOWNORMAL );
+	( void )quit;
+	if ( url == NULL || !idURLPolicy::IsAllowedHTTPURL( url ) ) {
+		common->Printf( "OpenURL rejected: expected an HTTP or HTTPS URL with a host\n" );
+		return;
 	}
-	if ( quit ) {
-		Sys_Quit();
-	}
+	common->Printf( "Open URL: %s\n", url );
+	ShellExecuteA( NULL, "open", url, NULL, NULL, SW_SHOWNORMAL );
 }
 
 void idSysLocal::StartProcess( const char *exePath, bool quit ) {

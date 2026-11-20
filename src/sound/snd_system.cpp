@@ -1610,6 +1610,25 @@ bool idSoundSystemLocal::QuerySpeakers( int numSpeakers ) const {
 
 /*
 ===================
+idSoundSystemLocal::ListSoundPlaybackDevices
+
+The options menu's playback devices (sdl_sound.cpp); without the SDL client layer, none.
+===================
+*/
+#if defined( USE_SDL3 ) && !defined( ID_DEDICATED )
+void Sys_ListAudioPlaybackDevices( idWStrList& names );
+#endif
+
+const idWStrList* idSoundSystemLocal::ListSoundPlaybackDevices() const {
+	idWStrList* list = new idWStrList;
+#if defined( USE_SDL3 ) && !defined( ID_DEDICATED )
+	Sys_ListAudioPlaybackDevices( *list );
+#endif
+	return list;
+}
+
+/*
+===================
 idSoundSystemLocal::GetAudioDeviceHash
 ===================
 */

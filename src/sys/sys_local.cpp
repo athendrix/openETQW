@@ -12,6 +12,10 @@
 #include "sys_local.h"
 #include "../framework/Session_local.h"
 #include "posix/posix_public.h"
+#include "URLPolicy.h"
+#ifndef ID_DEDICATED
+#include <SDL3/SDL.h>
+#endif
 
 const char * sysLanguageNames[] = {
 	"english", "spanish", "italian", "german", "french", "russian", 
@@ -456,17 +460,32 @@ void idSysLocal::FreeEvent( const sdSysEvent *event ) {
 }
 
 #if !defined( MACOS_X )
+/*
+The menus open web links (news, the community site) with quit set, as retail opened the
+browser and closed the game. The game stays open here: the link opens in the system's
+browser, and only an http or https URL with a host does (URLPolicy.h, as on macOS).
+*/
 void idSysLocal::OpenURL( const char *url, bool quit ) {
-	if ( quit ) {
-		Sys_Quit();
+	( void )quit;
+	if ( url == NULL || !idURLPolicy::IsAllowedHTTPURL( url ) ) {
+		common->Printf( "OpenURL rejected: expected an HTTP or HTTPS URL with a host\n" );
+		return;
 	}
+#ifndef ID_DEDICATED
+	common->Printf( "Open URL: %s\n", url );
+	if ( !SDL_OpenURL( url ) ) {
+		common->Printf( "OpenURL failed: %s\n", SDL_GetError() );
+	}
+#endif
 }
 #endif
 
+// nothing starts other programs on this platform (nothing in the game asks to), so
+// nothing quits for one either
 void idSysLocal::StartProcess( const char *exeName, bool quit ) {
-	if ( quit ) {
-		Sys_Quit();
-	}
+	( void )exeName;
+	( void )quit;
+	common->Printf( "StartProcess is not supported on this platform\n" );
 }
 
 int idSysLocal::MessageBox( const char* title, const char* buffer, messageBoxType_t type ) {

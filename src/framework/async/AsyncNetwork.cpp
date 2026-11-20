@@ -110,9 +110,9 @@ void idAsyncNetwork::Init( void ) {
 	cmdSystem->AddCommand( "nextMap", NextMap_f, CMD_FL_SYSTEM, "loads the next map on the server" );
 	cmdSystem->AddCommand( "connect", Connect_f, CMD_FL_SYSTEM, "connects to a server" );
 	cmdSystem->AddCommand( "reconnect", Reconnect_f, CMD_FL_SYSTEM, "reconnect to the last server we tried to connect to" );
-	cmdSystem->AddCommand( "serverInfo", GetServerInfo_f, CMD_FL_SYSTEM, "shows server info" );
-	cmdSystem->AddCommand( "LANScan", GetLANServers_f, CMD_FL_SYSTEM, "scans LAN for servers" );
-	cmdSystem->AddCommand( "listServers", ListServers_f, CMD_FL_SYSTEM, "lists scanned servers" );
+	cmdSystem->AddCommand( "serverInfo", GetServerInfo_f, CMD_FL_SYSTEM, "asks a server (host or host:port) for its settings and players and prints them" );
+	cmdSystem->AddCommand( "LANScan", GetLANServers_f, CMD_FL_SYSTEM, "lists the servers on the LAN and in the server list (queryServers lan)" );
+	cmdSystem->AddCommand( "listServers", ListServers_f, CMD_FL_SYSTEM, "lists the servers in the server list (queryServers)" );
 	cmdSystem->AddCommand( "rcon", RemoteConsole_f, CMD_FL_SYSTEM, "sends remote console command to server" );
 	cmdSystem->AddCommand( "heartbeat", Heartbeat_f, CMD_FL_SYSTEM, "send a heartbeat to the the master servers" );
 	cmdSystem->AddCommand( "kick", Kick_f, CMD_FL_SYSTEM, "kick a client by connection number" );
@@ -312,8 +312,17 @@ void idAsyncNetwork::Reconnect_f( const idCmdArgs &args ) {
 idAsyncNetwork::GetServerInfo_f
 ==================
 */
+// the server browser's query (src/sdnet/SDNetBrowser.cpp) answers these console commands;
+// the old idServerScan path never sent anything, and serverInfo replaced the address of
+// the server the client was connected to
+void SDNet_BrowserServerInfo( const char* address );
+
 void idAsyncNetwork::GetServerInfo_f( const idCmdArgs &args ) {
-	client.GetServerInfo( args.Argv( 1 ) );
+	if ( args.Argc() != 2 ) {
+		common->Printf( "usage: serverInfo <host or host:port>\n" );
+		return;
+	}
+	SDNet_BrowserServerInfo( args.Argv( 1 ) );
 }
 
 /*
@@ -322,7 +331,7 @@ idAsyncNetwork::GetLANServers_f
 ==================
 */
 void idAsyncNetwork::GetLANServers_f( const idCmdArgs &args ) {
-	client.GetLANServers();
+	cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "queryServers lan\n" );
 }
 
 /*
@@ -331,7 +340,7 @@ idAsyncNetwork::ListServers_f
 ==================
 */
 void idAsyncNetwork::ListServers_f( const idCmdArgs &args ) {
-	client.ListServers();
+	cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "queryServers\n" );
 }
 
 /*
