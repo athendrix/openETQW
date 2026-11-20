@@ -13,6 +13,7 @@
 #include "AsyncNetwork.h"
 #include <chrono>
 #include "../Session_local.h"
+void SDNet_BrowserServerJoined( const netadr_t& address );	// src/sdnet/SDNetBrowser.cpp
 
 static const int CLIENT_CONNECT_RESEND_MSEC = 1000;
 static const int CLIENT_EMPTY_RESEND_MSEC = 500;
@@ -800,6 +801,7 @@ void idAsyncClient::ProcessConnectResponseMessage( const netadr_t from, const id
 	clientState = CS_CONNECTED;
 	lastPacketTime = realTime;
 	common->Printf( "Client connected to server (slot %d, serverId %d)\n", clientNum, serverId );
+	SDNet_BrowserServerJoined( from );	// the browser's History tab
 	// first estimate of how far ahead to run: the connect round trip (Doom 3)
 	clientPredictTime = clientPrediction = idMath::ClampInt( 0, idAsyncNetwork::clientMaxPrediction.GetInteger(), realTime - lastConnectTime );
 	SendUserInfoToServer();

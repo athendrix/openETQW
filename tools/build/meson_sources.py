@@ -107,6 +107,7 @@ NAVIGATION_RECAST_SOURCES = (
 
 SDNET_SOURCES = (
     "src/sdnet/SDNet.cpp",
+    "src/sdnet/SDNetBrowser.cpp",
 )
 
 BSE_PARTICLE_SOURCES = (

@@ -7,7 +7,7 @@ Steam Deck support, and offline-only play. It runs Enemy Territory: QUAKE Wars f
 
 **Everyone needs the OpenETQW client.** OpenETQW uses its own network protocol: retail
 clients can't join an OpenETQW server, and OpenETQW clients can't join retail servers.
-There are no accounts, logins or master servers; you join by address.
+There are no accounts, logins or master servers: the browser asks servers directly.
 
 ## 1. The game data (everyone)
 
@@ -140,19 +140,39 @@ Type commands in the terminal (`status`, `kick <n>`, `spawnServer <map>`, `quit`
 keep it running after you log out, use `tmux`/`screen` or a systemd service.
 
 **The network:** open **UDP 27733** (or the `net_port` you chose) in the firewall and,
-for players outside your LAN, forward it on your router to the server.
+for players outside your LAN, forward it on your router to the server. The same port
+answers the menu's server browser. Players add the server to their list once with
+`addServer` (section 5).
 
 ## 5. Joining
 
-There is no server list yet. In the client, open the console (the key above Tab) and
-type:
+**From the menu:** open the server browser.
 
-```
-connect your.server.address
-```
+- **LAN** finds servers on your local network by itself (and also lists your saved
+  servers).
+- **Internet** lists the servers in your server list. There is no master server, so you
+  add a server once, in the console (the key above Tab):
 
-With a password, set it first: `set password changeme`. On a LAN the server's local IP
-address works. After the first time, `reconnect` joins the last server again.
+  ```
+  addServer your.server.address
+  ```
+
+  `addServer host:port` for a server not on port 27733; `removeServer` and `serverList`
+  edit and show the list. It is saved with your settings.
+- **History** lists the last ten servers you joined, and **Favorites** the ones you
+  starred. Both are saved too.
+
+Pick a server and join. For a server with a password, set it in the console first
+(`set password changeme`); the retail menu's password prompt has not been tried yet.
+
+**From the console:** `connect your.server.address` joins directly (`set password ...`
+first for a passworded server), and `reconnect` joins the last server again.
+`queryServers` prints what your server list answers, which is a quick way for a server
+operator to check that the server can be reached (`queryServers lan` adds the LAN).
+
+The browser asks each server directly, on the server's game port (UDP 27733); a server
+answers no more than once every 100 ms per address and 60 times a second in all
+(`net_serverAnswerQueries 0` turns the answers off).
 
 ## 6. Controls
 

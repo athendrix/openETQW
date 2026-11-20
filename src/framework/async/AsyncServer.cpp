@@ -12,6 +12,7 @@
 #include "../Session_local.h"
 #include "sdnet/SDNet.h"
 #include "AllowFailureReason.h"
+#include "ServerQuery.h"
 #include <cstdint>
 
 static const int SERVER_EMPTY_RESEND_MSEC = 500;
@@ -1739,7 +1740,73 @@ void idAsyncServer::ProcessRemoteConsoleMessage( const netadr_t from, const idBi
 	noRconOutput = false;
 }
 
+/*
+==================
+idAsyncServer::ProcessGetInfoMessage
+
+The server browser's query (ServerQuery.h): the server's settings (its serverinfo
+CVars) and its players, without a connection. Only for our protocol, and rate limited,
+since the answer is bigger than the question.
+==================
+*/
+idCVar net_serverAnswerQueries( "net_serverAnswerQueries", "1", CVAR_SYSTEM | CVAR_BOOL | CVAR_NOCHEAT, "answer server browser queries (the menu's server list)" );
+
 void idAsyncServer::ProcessGetInfoMessage( const netadr_t from, const idBitMsg& msg ) {
+	static sqRateLimiter limiter;
+	if ( !active || !net_serverAnswerQueries.GetBool() || ( from.type != NA_IP && from.type != NA_LOOPBACK ) ) {
+		return;
+	}
+	int protocol = 0;
+	int nonce = 0;
+	if ( !SQ_ReadRequest( msg, protocol, nonce ) || protocol != ASYNC_PROTOCOL_VERSION ) {
+		return;
+	}
+	unsigned int address = 0;
+	memcpy( &address, from.ip, sizeof( address ) );
+	if ( !limiter.Allow( address, Sys_Milliseconds() ) ) {
+		return;
+	}
+
+	sqInfo_t* info = new sqInfo_t;
+	info->Clear();
+	info->protocol = ASYNC_PROTOCOL_VERSION;
+	info->nonce = nonce;
+
+	// the keys the browser shows first, then the rest of the serverinfo
+	const idDict& serverInfo = sessLocal.mapSpawnData.serverInfo;
+	static const char* const firstKeys[] = {
+		"si_name", "si_map", "si_rules", "si_maxPlayers", "si_needPass", "si_pure",
+		"si_teamDamage", "si_teamForceBalance", "si_allowLateJoin", "fs_game"
+	};
+	for ( int i = 0; i < static_cast< int >( sizeof( firstKeys ) / sizeof( firstKeys[ 0 ] ) ); i++ ) {
+		const idKeyValue* kv = serverInfo.FindKey( firstKeys[ i ] );
+		if ( kv != NULL ) {
+			info->AddKey( kv->GetKey().c_str(), kv->GetValue().c_str() );
+		}
+	}
+	for ( int i = 0; i < serverInfo.GetNumKeyVals(); i++ ) {
+		const idKeyValue* kv = serverInfo.GetKeyVal( i );
+		if ( info->FindValue( kv->GetKey().c_str() ) == NULL ) {
+			info->AddKey( kv->GetKey().c_str(), kv->GetValue().c_str() );
+		}
+	}
+
+	for ( int i = 0; i < MAX_ASYNC_CLIENTS; i++ ) {
+		const serverClient_t& client = clients[ i ];
+		if ( client.clientState < SCS_CONNECTED ) {
+			continue;
+		}
+		info->AddPlayer( sessLocal.mapSpawnData.userInfo[ i ].GetString( "ui_name" ), client.isBot ? 0 : client.clientPing, client.isBot );
+	}
+
+	// one unfragmented packet
+	byte buffer[ 1400 ];
+	idBitMsg out;
+	out.InitWrite( buffer, sizeof( buffer ) );
+	out.BeginWriting();
+	SQ_WriteResponse( out, *info );
+	delete info;
+	serverPort.SendPacket( from, out.GetData(), out.GetSize() );
 }
 
 bool idAsyncServer::ConnectionlessMessage( const netadr_t from, const idBitMsg& msg ) {

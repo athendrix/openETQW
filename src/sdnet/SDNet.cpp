@@ -13,6 +13,7 @@
 // executable itself is built with SD_DEMO_BUILD for the demo content set.
 #include "SDNetAccount_Auth.h"
 #include "SDNetSessionManager.h"
+#include "SDNetBrowser.h"
 #if !defined( SD_DEMO_BUILD ) || defined( SD_RETAIL_SDNET_ABI )
 #include "SDNetStatsManager.h"
 #include "SDNetFriendsManager.h"
@@ -20,6 +21,8 @@
 #endif
 
 namespace {
+
+const char OFFLINE_PROFILE_FILE[] = "offlineprofile.dat";
 
 class sdNetProfileOffline : public sdNetProfile {
 public:
@@ -73,7 +76,32 @@ public:
 	virtual const sdNetProfile& GetProfile() const { return profile; }
 	virtual void Activate() { state = US_ACTIVE; }
 	virtual void Deactivate() { state = US_INACTIVE; }
-	virtual bool Save( int ) const { return true; }
+	// the profile holds the browser's favorites and history (SDNetBrowser.cpp); kept in the
+	// save path, as a Demonware profile was kept on its servers
+	virtual bool Save( int ) const {
+		if ( fileSystem == NULL ) {
+			return false;
+		}
+		idFile* file = fileSystem->OpenFileWrite( OFFLINE_PROFILE_FILE );
+		if ( file == NULL ) {
+			return false;
+		}
+		profile.GetProperties().WriteToFileHandle( file );
+		fileSystem->CloseFile( file );
+		return true;
+	}
+
+	void Load() {
+		if ( fileSystem == NULL ) {
+			return;
+		}
+		idFile* file = fileSystem->OpenFileRead( OFFLINE_PROFILE_FILE );
+		if ( file == NULL ) {
+			return;
+		}
+		profile.GetProperties().ReadFromFileHandle( file );
+		fileSystem->CloseFile( file );
+	}
 	virtual sdNetAccount& GetAccount() { return account; }
 
 private:
@@ -82,27 +110,6 @@ private:
 	idStr			rawUsername;
 	sdNetProfileOffline profile;
 	sdNetAccountOffline account;
-};
-
-class sdNetSessionManagerOffline : public sdNetSessionManager {
-public:
-	sdNetSessionManagerOffline() {
-		memset( &currentAddress, 0, sizeof( currentAddress ) );
-		currentAddress.type = NA_BAD;
-	}
-
-	virtual const netadr_t& GetCurrentSessionAddress() const { return currentAddress; }
-	virtual sdNetSession* AllocSession( const netadr_t* ) { return NULL; }
-	virtual void FreeSession( sdNetSession* ) {}
-	virtual sdNetTask* CreateSession( sdNetSession& ) { return NULL; }
-	virtual sdNetTask* UpdateSession( sdNetSession& ) { return NULL; }
-	virtual sdNetTask* DeleteSession( sdNetSession& ) { return NULL; }
-	virtual sdNetTask* FindSessions( idList< sdNetSession* >&, sessionSource_e ) { return NULL; }
-	virtual sdNetTask* RefreshSessions( idList< sdNetSession* >& ) { return NULL; }
-	virtual sdNetTask* RefreshSession( sdNetSession& ) { return NULL; }
-
-private:
-	netadr_t currentAddress;
 };
 
 #if !defined( SD_DEMO_BUILD ) || defined( SD_RETAIL_SDNET_ABI )
@@ -322,17 +329,24 @@ public:
 		// idDict's global string pools are initialized by idLib, after this
 		// service's static constructor has run.  Populate the local profile here
 		// rather than from sdNetUserOffline's constructor.
+		localUser.Load();
 		localUser.GetProfile().GetProperties().SetBool( "default", true );
+		static bool commandsRegistered = false;
+		if ( !commandsRegistered && cmdSystem != NULL ) {
+			SDNet_BrowserRegisterCommands();
+			commandsRegistered = true;
+		}
 		return true;
 	}
 
 	virtual void Shutdown() {
+		SDNet_BrowserShutdown();
 		localUser.Deactivate();
 		state = SS_DISABLED;
 		dedicatedState = DS_OFFLINE;
 	}
 
-	virtual void RunFrame() {}
+	virtual void RunFrame() { SDNet_BrowserFrame(); }
 	virtual serviceState_e GetState() const { return state; }
 	virtual disconnectReason_e GetDisconnectReason() const { return disconnectReason; }
 	virtual dedicatedState_e GetDedicatedServerState() const { return dedicatedState; }
@@ -365,7 +379,8 @@ public:
 	virtual sdNetFriendsManager& GetFriendsManager() { return friendsManager; }
 	virtual sdNetTeamManager& GetTeamManager() { return teamManager; }
 #endif
-	virtual void FreeTask( sdNetTask* ) {}
+	// the only tasks this service makes are the browser's
+	virtual void FreeTask( sdNetTask* task ) { SDNet_BrowserFreeTask( task ); }
 	virtual sdNetErrorCode_e GetLastError() const { return lastError; }
 	virtual sdNetTask* Connect() {
 		lastError = SDNET_SERVICE_UNAVAILABLE;
@@ -398,7 +413,7 @@ private:
 	sdNetErrorCode_e lastError;
 	motdList_t motd;
 	sdNetUserOffline localUser;
-	sdNetSessionManagerOffline sessionManager;
+	sdNetSessionManagerBrowser sessionManager;
 #if !defined( SD_DEMO_BUILD ) || defined( SD_RETAIL_SDNET_ABI )
 	sdNetStatsManagerOffline statsManager;
 	sdNetFriendsManagerOffline friendsManager;

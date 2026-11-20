@@ -48,6 +48,19 @@ bitmsg_test = executable(
 )
 test('bitmsg', bitmsg_test, suite: 'unit', timeout: 30)
 
+# 1b. the server browser's query (ServerQuery.h): round trip, one packet, hostile input,
+#     the server's rate limiter
+server_query_test = executable(
+  'openetqw-server-query-test',
+  files('ServerQueryTest.cpp', game_stage_root / 'src' / 'idlib' / 'BitMsg.cpp'),
+  include_directories: test_include_dirs,
+  cpp_args: ['-D__IDLIB__', '-DSD_SDK_BUILD', '-DSD_PUBLIC_BUILD'],
+  dependencies: test_deps,
+  link_args: test_link_args,
+  install: false,
+)
+test('server-query', server_query_test, suite: 'unit', timeout: 30)
+
 # 2. UserCmd delta serialization & sequence test
 usercmd_test_src = files(
   'UserCmdDeltaTest.cpp',
