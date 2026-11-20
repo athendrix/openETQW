@@ -249,6 +249,7 @@ PLATFORM_WIN32_SOURCES = (
 SDL3_PLATFORM_SOURCES = (
     "src/sys/sdl/sdl_glimp.cpp",
     "src/sys/sdl/sdl_events.cpp",
+    "src/sys/sdl/sdl_gamepad.cpp",
     "src/sys/sdl/sdl_sound.cpp",
 )
 

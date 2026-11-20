@@ -10,6 +10,11 @@
 #include "win32/input/win_xinput.h"
 #endif
 
+#ifndef ID_DEDICATED
+// sdl_gamepad.cpp: the SDL3 gamepad backend of the client builds
+sdControllerAPI* Sys_CreateSDLGamepadAPI( int apiIndex );
+#endif
+
 namespace {
 
 struct keyName_t {
@@ -399,14 +404,29 @@ sdControllerManagerLocal::~sdControllerManagerLocal() {
 }
 
 void sdControllerManagerLocal::Init() {
-#ifdef _WIN32
-	sdControllerAPIXInput* xInput = new sdControllerAPIXInput;
-	controllerAPIs.Append( xInput );
-	xInput->Init( controllerAPIs.Num() - 1 );
+#ifndef ID_DEDICATED
+	// SDL3 reads every pad on every platform (Xbox, PlayStation, Switch, the Steam Deck).
+	// On Windows the retail XInput and DirectInput backends would see the same pads a
+	// second time, so they are only the fallback when SDL3's gamepad layer is off or fails.
+	sdControllerAPI* sdlGamepads = Sys_CreateSDLGamepadAPI( controllerAPIs.Num() );
+	controllerAPIs.Append( sdlGamepads );
+	const bool haveSDLGamepads = sdlGamepads->GetState() == sdControllerAPI::CAS_SUPPORTED;
+#else
+	const bool haveSDLGamepads = false;
+#endif
 
-	sdControllerAPIDInput* dInput = new sdControllerAPIDInput;
-	controllerAPIs.Append( dInput );
-	dInput->Init( controllerAPIs.Num() - 1 );
+#ifdef _WIN32
+	if ( !haveSDLGamepads ) {
+		sdControllerAPIXInput* xInput = new sdControllerAPIXInput;
+		controllerAPIs.Append( xInput );
+		xInput->Init( controllerAPIs.Num() - 1 );
+
+		sdControllerAPIDInput* dInput = new sdControllerAPIDInput;
+		controllerAPIs.Append( dInput );
+		dInput->Init( controllerAPIs.Num() - 1 );
+	}
+#else
+	(void)haveSDLGamepads;
 #endif
 
 	cmdSystem->AddCommand( "listControllers", Controller_List_f, CMD_FL_SYSTEM, "lists connected controller devices" );
@@ -438,4 +458,13 @@ int sdControllerManagerLocal::GetNumConnectedControllers() const {
 		}
 	}
 	return count;
+}
+
+// the client's gamepads, from idCommonLocal::Init and Shutdown
+void Sys_InitControllers( void ) {
+	sys->GetControllerManager().Init();
+}
+
+void Sys_ShutdownControllers( void ) {
+	sys->GetControllerManager().Shutdown();
 }

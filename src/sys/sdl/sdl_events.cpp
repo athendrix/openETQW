@@ -12,6 +12,8 @@
 #include "TextInputFocus.h"
 
 SDL_Window* Sys_GetGameSDLWindow( void );
+void Sys_SDLGamepadDeviceEvent( const SDL_Event& event );	// sdl_gamepad.cpp
+void Sys_PollSDLGamepads( void );
 #ifdef __APPLE__
 void Sys_KeepFullscreenComposited( void ); // macosx_sdl3.cpp (#385)
 #endif
@@ -453,10 +455,17 @@ void Sys_ProcessSDLEvents( void ) {
 				break;
 			}
 
+			case SDL_EVENT_GAMEPAD_ADDED:
+			case SDL_EVENT_GAMEPAD_REMOVED:
+				Sys_SDLGamepadDeviceEvent( event );
+				break;
+
 			default:
 				break;
 		}
 	}
+	// after the events, so a pad unplugged this frame is closed first
+	Sys_PollSDLGamepads();
 #ifdef __APPLE__
 	Sys_KeepFullscreenComposited();
 #endif

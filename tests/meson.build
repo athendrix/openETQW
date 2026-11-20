@@ -124,6 +124,16 @@ mouse_delta_test = executable(
 )
 test('mouse-delta', mouse_delta_test, suite: 'unit', timeout: 30)
 
+# 5a0. the SDL3 gamepad backend's helpers: the retail XInput button numbering, one event
+#      per button, trigger hysteresis and the menu cursor's radial dead zone
+gamepad_mapping_test = executable(
+  'openetqw-gamepad-mapping-test',
+  files('GamepadMappingTest.cpp'),
+  include_directories: include_directories('../src/sys/sdl'),
+  install: false,
+)
+test('gamepad-mapping', gamepad_mapping_test, suite: 'unit', timeout: 30)
+
 # 5a1b. a binary MD5 model's deferred meshes drawn as their own surfaces (#461): each gets
 #       its own compact vertex list, so a vehicle part that breaks off hides only its mesh
 md5_deferred_mesh_test = executable(

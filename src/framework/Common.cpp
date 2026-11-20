@@ -1712,6 +1712,11 @@ void idCommonLocal::InitGame( bool resetConfigs ) {
 	}
 	PrintLoadingMessage( "INITIALIZING INPUT..." );
 	Sys_InitInput();
+#ifndef ID_DEDICATED
+	// gamepads (sys_input.cpp, sdl_gamepad.cpp); nothing started the controller manager before
+	void Sys_InitControllers( void );
+	Sys_InitControllers();
+#endif
 	PrintLoadingMessage( "INITIALIZING NETWORK..." );
 	idAsyncNetwork::Init();
 	PrintLoadingMessage( "INITIALIZING SESSION..." );
@@ -1930,6 +1935,10 @@ void idCommonLocal::Shutdown() {
 		networkService->Shutdown();
 	}
 	idAsyncNetwork::Shutdown();
+#ifndef ID_DEDICATED
+	void Sys_ShutdownControllers( void );
+	Sys_ShutdownControllers();
+#endif
 	Sys_ShutdownInput();
 	if ( soundSystem != NULL ) {
 		sdScopedLock< true > soundLock( soundSystem->GetLock() );
