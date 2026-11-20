@@ -159,7 +159,7 @@ int main() {
 		netadr_t to6;
 		Expect( Sys_StringToNetAdr( va( "[::1]:%d", server.GetPort() ), &to6, false ) && to6.type == NA_IP6, "parse [::1]" );
 		Expect( Exchange( client, server, to6, seen ), "IPv6 datagram on the IPv4 port's number" );
-		Expect( seen.type == NA_IP6 && strncmp( Sys_NetAdrToString( seen ), "[::1]:", 6 ) == 0, "IPv6 sender address" );
+		Expect( seen.type == NA_IP6 && idStr::Cmpn( Sys_NetAdrToString( seen ), "[::1]:", 6 ) == 0, "IPv6 sender address" );
 		// and back, to the address the server saw
 		netadr_t back;
 		Expect( Exchange( server, client, seen, back ), "IPv6 reply" );
