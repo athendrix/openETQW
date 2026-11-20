@@ -1,0 +1,315 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Builds: the packages players and server operators download, for every push to
+# main or the feature branch (and on demand). Nothing is released or tagged here;
+# the downloads are this run's artifacts (and the server image in the GitHub
+# container registry). GETTING-STARTED.md says where to find them.
+#
+#   linux-x64     the Linux client as an AppImage, and the .tar.xz package (client
+#                 and dedicated server) the container image is made from
+#   windows-x64   the Windows client: a zip and an installer
+#   server-image  the dedicated server on Fedora Minimal (tools/docker/server),
+#                 pushed to ghcr.io/<owner>/openetqw-server and kept as an artifact
+#
+# The build and package steps are manual-release.yml's (the same tools, the same
+# checks), with a development version: <version>-dev.<run number>.
+
+name: Builds
+
+on:
+  push:
+    branches:
+      - main
+      - feat/destiny-controls
+  workflow_dispatch:
+
+concurrency:
+  group: openetqw-builds-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUNBUFFERED: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+  MESON_VERSION: "1.12.1"
+  NINJA_VERSION: "1.13.2"
+  SDL3_TAG: release-3.4.16
+  OPENETQW_COMPANION_REPO: ${{ github.repository_owner }}/openETQW-game
+  RELEASE_BUILDTYPE: debugoptimized
+
+jobs:
+  package:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: linux-x64
+            label: Linux x64 (AppImage, server package)
+            os: ubuntu-24.04
+            platform: linux
+            arch: x64
+            vcpkg_triplet: ""
+          - id: windows-x64
+            label: Windows x64 (client)
+            os: windows-2025-vs2026
+            platform: windows
+            arch: x64
+            vcpkg_triplet: x64-windows
+    env:
+      OPENETQW_GAME_REPO: ${{ github.workspace }}/openETQW-game
+      ARCH: ${{ matrix.arch }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: openETQW
+    steps:
+      - name: Checkout openETQW
+        uses: actions/checkout@v7
+        with:
+          path: openETQW
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.x"
+
+      - name: Version
+        run: |
+          set -euo pipefail
+          version="$(python tools/build/openetqw_release_version.py --source-root . --bump-mode auto | sed -n 's/^version=//p')"
+          {
+            echo "VERSION=${version}"
+            echo "VERSION_TAG=${version}-dev.${GITHUB_RUN_NUMBER}"
+            echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)"
+          } >> "${GITHUB_ENV}"
+
+      - name: Prepare build (companion at its pin, Meson, dependencies)
+        uses: ./openETQW/.github/actions/prepare
+        with:
+          platform: ${{ matrix.platform }}
+          vcpkg-triplet: ${{ matrix.vcpkg_triplet }}
+          cross-repo-token: ${{ secrets.OPENETQW_CROSS_REPO_TOKEN }}
+          companion-required: "true"
+          repository-private: ${{ github.event.repository.private }}
+          meson-version: ${{ env.MESON_VERSION }}
+          ninja-version: ${{ env.NINJA_VERSION }}
+          sdl3-tag: ${{ env.SDL3_TAG }}
+
+      - name: Build glslangValidator
+        run: python tools/build/build_glslang.py --output-dir "${RUNNER_TEMP}/glslang"
+
+      - name: Validate and stage (push profile)
+        run: >-
+          python tools/validation/openetqw_validate.py push --build-dir build
+          --buildtype "${RELEASE_BUILDTYPE}" --fail-on-dirty
+          --meson-option version_track=stable
+          --meson-option "version_base_override=${VERSION}"
+
+      - name: Collect the bundled libraries' licence texts
+        run: |
+          set -euo pipefail
+          args=(--license "glslang=${RUNNER_TEMP}/glslang/LICENSE.txt")
+          case "${RUNNER_OS}" in
+            Linux)
+              args+=(--license "SDL3=${RUNNER_TEMP}/sdl3/share/licenses/SDL3/LICENSE.txt") ;;
+            Windows)
+              vcpkg_prefix="$(dirname "$(dirname "${PKG_CONFIG}")")"
+              vcpkg_prefix="$(dirname "${vcpkg_prefix}")"
+              args+=(--license "SDL3=${vcpkg_prefix}/share/sdl3/copyright")
+              args+=(--license "zlib=${vcpkg_prefix}/share/zlib/copyright") ;;
+          esac
+          for arg in "${args[@]}"; do
+            case "${arg}" in --license) ;; *) test -f "${arg#*=}" || { echo "::error::missing licence text ${arg#*=}"; exit 1; } ;; esac
+          done
+          printf '%s\n' "${args[@]}" > "${RUNNER_TEMP}/license-args.txt"
+
+      - name: Find the MSVC runtime to bundle
+        if: matrix.platform == 'windows'
+        id: crt
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -property installationPath
+          $redist = Get-ChildItem (Join-Path $vs "VC\Redist\MSVC") -Directory | Where-Object { $_.Name -match '^\d' } | Sort-Object { [version]$_.Name } | Select-Object -Last 1
+          $crt = Get-ChildItem (Join-Path $redist.FullName $env:ARCH) -Directory -Filter "Microsoft.VC*.CRT" | Select-Object -First 1
+          if (-not $crt) { throw "no Microsoft.VC*.CRT under $($redist.FullName)\$env:ARCH" }
+          "crt_dir=$($crt.FullName)" >> $env:GITHUB_OUTPUT
+
+      - name: Package
+        id: package
+        env:
+          CRT_DIR: ${{ steps.crt.outputs.crt_dir }}
+        run: |
+          set -euo pipefail
+          license_args=()
+          while IFS= read -r line; do license_args+=("${line}"); done < "${RUNNER_TEMP}/license-args.txt"
+          platform="$(echo "${RUNNER_OS}" | tr '[:upper:]' '[:lower:]')"
+          args=(--platform "${platform}" --arch "${ARCH}" --install-dir build/install
+                --version-tag "${VERSION_TAG}" --output-dir "${RUNNER_TEMP}/dist"
+                --glslang-dir "${RUNNER_TEMP}/glslang" --source-date-epoch "${SOURCE_DATE_EPOCH}")
+          if [ "${platform}" = windows ]; then
+            args+=(--windows-crt-dir "${CRT_DIR}")
+            game_pdb="${OPENETQW_GAME_REPO}/build/game_${ARCH}.pdb"
+            if [ -f "${game_pdb}" ]; then args+=(--extra-pdb "${game_pdb}"); fi
+          fi
+          python tools/build/package_release.py "${args[@]}" "${license_args[@]}"
+
+      - name: Smoke the packaged dedicated server
+        env:
+          PACKAGE_DIR: ${{ steps.package.outputs.package_dir }}
+        run: |
+          set -euo pipefail
+          case "${RUNNER_OS}" in
+            Linux) exe="${PACKAGE_DIR}/openETQW-ded_${ARCH}"; module="${PACKAGE_DIR}/game_${ARCH}.so" ;;
+            Windows) exe="${PACKAGE_DIR}/openETQW-ded_${ARCH}.exe"; module="${PACKAGE_DIR}/game_${ARCH}.dll"
+                     PATH="$(cygpath -u "${PACKAGE_DIR}"):$(printf '%s' "${PATH}" | tr ':' '\n' | grep -vi 'vcpkg' | paste -sd: -)"
+                     export PATH ;;
+          esac
+          python tools/ci/dedicated_server_smoke.py --executable "${exe}" --game-module "${module}" \
+            --arch "${ARCH}" --output-root .tmp/ci/package-smoke
+
+      - name: Build the AppImage
+        if: matrix.platform == 'linux'
+        env:
+          PACKAGE_DIR: ${{ steps.package.outputs.package_dir }}
+        run: |
+          set -euo pipefail
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends desktop-file-utils
+          python tools/build/package_linux_appimage.py --package-dir "${PACKAGE_DIR}" --arch "${ARCH}" \
+            --version-tag "${VERSION_TAG}" --download-appimagetool "${RUNNER_TEMP}/appimagetool" \
+            --output "${RUNNER_TEMP}/dist/openetqw-${VERSION_TAG}-x86_64.AppImage"
+
+      - name: Build the Windows installer
+        if: matrix.platform == 'windows'
+        env:
+          PACKAGE_DIR: ${{ steps.package.outputs.package_dir }}
+        run: |
+          set -euo pipefail
+          choco install innosetup --no-progress -y
+          python tools/build/build_windows_installer.py --package-dir "${PACKAGE_DIR}" --version "${VERSION}.${GITHUB_RUN_NUMBER}" \
+            --arch "${ARCH}" --output-dir "${RUNNER_TEMP}/dist" \
+            --output-basename "openetqw-${VERSION_TAG}-windows-${ARCH}-setup"
+
+      - name: Upload the Linux client (AppImage)
+        if: matrix.platform == 'linux'
+        uses: actions/upload-artifact@v7
+        with:
+          name: openetqw-linux-client-appimage
+          path: ${{ runner.temp }}/dist/openetqw-*.AppImage
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload the Linux package (client and dedicated server)
+        if: matrix.platform == 'linux'
+        uses: actions/upload-artifact@v7
+        with:
+          name: openetqw-linux-x64-package
+          path: ${{ runner.temp }}/dist/openetqw-*-linux-x64.tar.xz
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload the Windows client
+        if: matrix.platform == 'windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: openetqw-windows-client
+          path: |
+            ${{ runner.temp }}/dist/openetqw-*.zip
+            ${{ runner.temp }}/dist/openetqw-*-setup.exe
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: logs-${{ matrix.id }}
+          path: |
+            openETQW/build/meson-logs
+            openETQW-game/build/meson-logs
+            openETQW/.tmp/ci
+          if-no-files-found: ignore
+          retention-days: 14
+          include-hidden-files: true
+
+  server-image:
+    name: Dedicated server image (Fedora Minimal)
+    needs: package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout openETQW
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Download the Linux package
+        uses: actions/download-artifact@v7
+        with:
+          name: openetqw-linux-x64-package
+          path: ${{ runner.temp }}/package
+
+      - name: Assemble the build context
+        run: |
+          set -euo pipefail
+          context="${RUNNER_TEMP}/context"
+          mkdir -p "${context}/server"
+          cp tools/docker/server/Dockerfile tools/docker/server/entrypoint.sh tools/docker/server/server.cfg.example "${context}/"
+          tar -xJf "${RUNNER_TEMP}"/package/openetqw-*-linux-x64.tar.xz -C "${context}/server" --strip-components=1
+          # the server needs none of the client's files
+          rm -f "${context}"/server/openETQW-client_* "${context}"/server/glslangValidator "${context}"/server/*.debug
+          rm -rf "${context}/server/base/vkprogs" "${context}/server/assets"
+          test -x "${context}/server/openETQW-ded_x64"
+          test -f "${context}/server/game_x64.so"
+          echo "CONTEXT=${context}" >> "${GITHUB_ENV}"
+          echo "IMAGE=ghcr.io/$(echo "${GITHUB_REPOSITORY_OWNER}" | tr '[:upper:]' '[:lower:]')/openetqw-server" >> "${GITHUB_ENV}"
+          echo "TAG=$(echo "${GITHUB_REF_NAME}" | tr '/' '-')" >> "${GITHUB_ENV}"
+
+      - name: Build the image
+        run: |
+          set -euo pipefail
+          # the source label links the package to this repository on GitHub
+          docker build --pull --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            -t "${IMAGE}:${TAG}" -t "${IMAGE}:${TAG}-${GITHUB_SHA::7}" "${CONTEXT}"
+
+      - name: Smoke the image (without game data it must say so and stop)
+        run: |
+          set -euo pipefail
+          out="$(docker run --rm "${IMAGE}:${TAG}" 2>&1 || true)"
+          echo "${out}"
+          echo "${out}" | grep -q "no game data"
+
+      - name: Push to the GitHub container registry
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          echo "${GH_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker push "${IMAGE}:${TAG}"
+          docker push "${IMAGE}:${TAG}-${GITHUB_SHA::7}"
+          {
+            echo "### Dedicated server image"
+            echo "\`docker pull ${IMAGE}:${TAG}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Save the image as a file
+        run: docker save "${IMAGE}:${TAG}" | gzip > "${RUNNER_TEMP}/openetqw-server-image.tar.gz"
+
+      - name: Upload the image file
+        uses: actions/upload-artifact@v7
+        with:
+          name: openetqw-server-image
+          path: ${{ runner.temp }}/openetqw-server-image.tar.gz
+          if-no-files-found: error
+          retention-days: 30

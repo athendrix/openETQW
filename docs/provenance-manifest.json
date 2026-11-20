@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "totalFiles": 5689,
+  "totalFiles": 5693,
   "counts": {
     "SDK": 1070,
     "Doom3_GPL": 309,
@@ -9,7 +9,7 @@
     "Reconstruction_original": 394
   },
   "postSplitCounts": {
-    "Reconstruction_original": 399,
+    "Reconstruction_original": 403,
     "ThirdParty": 8,
     "Retail_asset": 4,
     "Doom3_GPL": 2,
@@ -47511,6 +47511,18 @@
       "spdx": "GPL-3.0-or-later"
     },
     {
+      "path": ".github/workflows/builds.yml",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "03e43bc6e73a72ed2945cf04ebb034a9e69f615bd0e256df9b4e664ed6cb856e",
+      "canonicalSha256": "03e43bc6e73a72ed2945cf04ebb034a9e69f615bd0e256df9b4e664ed6cb856e",
+      "bytes": 12792,
+      "addedAfterSplit": true,
+      "addedIn": null,
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
       "path": ".github/workflows/commit-validation.yml",
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
@@ -47641,9 +47653,9 @@
       "tier": "Reconstruction_original",
       "license": "GPL-3.0-or-later",
       "targetRepo": "openETQW",
-      "rawSha256": "2368b35568f7ebae0615a443f5fbfd5beac754b2ecf78e05fb3139c7ec3a114e",
-      "canonicalSha256": "2368b35568f7ebae0615a443f5fbfd5beac754b2ecf78e05fb3139c7ec3a114e",
-      "bytes": 10092,
+      "rawSha256": "2b7aada6e996f273dce3915a16924e15d1a27d3e975f907ddce2f72a517b0bf6",
+      "canonicalSha256": "2b7aada6e996f273dce3915a16924e15d1a27d3e975f907ddce2f72a517b0bf6",
+      "bytes": 12133,
       "addedAfterSplit": true,
       "addedIn": "aa784ce2a8e360faddc4287fcc5c85b5693b5403",
       "spdx": "GPL-3.0-or-later"
@@ -51954,6 +51966,42 @@
       "bytes": 898,
       "addedAfterSplit": true,
       "addedIn": "7ed2cd037b78d99b66373a7971ac245e60d5f756",
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
+      "path": "tools/docker/server/Dockerfile",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "82abbe8d603f3ba42b3a4937cac695776401a980bab6a82a404e3ed794f7207c",
+      "canonicalSha256": "82abbe8d603f3ba42b3a4937cac695776401a980bab6a82a404e3ed794f7207c",
+      "bytes": 1167,
+      "addedAfterSplit": true,
+      "addedIn": null,
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
+      "path": "tools/docker/server/entrypoint.sh",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "cb261e0ce525cd8b3109c62889c4e51941f5f0e1382ca2cd51babddbf2009714",
+      "canonicalSha256": "cb261e0ce525cd8b3109c62889c4e51941f5f0e1382ca2cd51babddbf2009714",
+      "bytes": 1013,
+      "addedAfterSplit": true,
+      "addedIn": null,
+      "spdx": "GPL-3.0-or-later"
+    },
+    {
+      "path": "tools/docker/server/server.cfg.example",
+      "tier": "Reconstruction_original",
+      "license": "GPL-3.0-or-later",
+      "targetRepo": "openETQW",
+      "rawSha256": "8ad9363b24a84633a124d85cc9b044a174b8bf311391190978ae76702a04c883",
+      "canonicalSha256": "8ad9363b24a84633a124d85cc9b044a174b8bf311391190978ae76702a04c883",
+      "bytes": 553,
+      "addedAfterSplit": true,
+      "addedIn": null,
       "spdx": "GPL-3.0-or-later"
     },
     {
