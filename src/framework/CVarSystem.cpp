@@ -1075,7 +1075,9 @@ void idCVarSystemLocal::SetCVarsFromDict( const idDict &dict ) {
 	for( int i = 0; i < dict.GetNumKeyVals(); i++ ) {
 		const idKeyValue *kv = dict.GetKeyVal( i );
 		internal = FindInternal( kv->GetKey() );
-		if ( internal ) {
+		// the dict is the server's synced CVars (SERVER_RELIABLE_MESSAGE_SYNCEDCVARS):
+		// only CVars that are synced from the server take a value from it
+		if ( internal != NULL && ( internal->GetFlags() & CVAR_NETWORKSYNC ) != 0 ) {
 			internal->InternalServerSetString( kv->GetValue(), true, true );
 		}
 	}

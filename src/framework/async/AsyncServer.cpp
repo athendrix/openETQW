@@ -13,6 +13,9 @@
 #include "sdnet/SDNet.h"
 #include "AllowFailureReason.h"
 #include "ServerQuery.h"
+
+// a connect challenge is good this long after it was handed out
+static const int CHALLENGE_LIFETIME_MSEC = 10000;
 #include <cstdint>
 #include <random>
 
@@ -1529,12 +1532,22 @@ void idAsyncServer::ProcessChallengeMessage( const netadr_t from, const idBitMsg
 	}
 	int clientId = msg.ReadLong();
 
+	// one answer per address every 50 ms, 500 a second in all: a spoofed flood can't
+	// cycle the challenge table or the log
+	static sqRateLimiter limiter( 50, 500 );
+	unsigned int limiterKey = 0;
+	memcpy( &limiterKey, from.ip, sizeof( limiterKey ) );
+	if ( !limiter.Allow( limiterKey, Sys_Milliseconds() ) ) {
+		return;
+	}
+
 	int slot = -1;
 	int oldest = 0;
 	int oldestTime = realTime;
 
 	for ( int i = 0; i < MAX_CHALLENGES; ++i ) {
-		if ( challenges[ i ].time != 0 && realTime - challenges[ i ].time > 10000 ) {
+		if ( challenges[ i ].time != 0 && realTime - challenges[ i ].time > CHALLENGE_LIFETIME_MSEC ) {
+			memset( &challenges[ i ].address, 0, sizeof( challenges[ i ].address ) );
 			challenges[ i ].clientId = 0;
 			challenges[ i ].challenge = 0;
 			challenges[ i ].time = 0;
@@ -1561,7 +1574,8 @@ void idAsyncServer::ProcessChallengeMessage( const netadr_t from, const idBitMsg
 
 	int challengeVal = challenges[ slot ].challenge;
 	if ( challengeVal == 0 ) {
-		challengeVal = ( ( rand() << 16 ) ^ rand() ^ realTime ) & 0x7FFFFFFF;
+		static std::random_device random;
+		challengeVal = static_cast< int >( ( static_cast< unsigned int >( random() ) ) & 0x7FFFFFFF );
 		if ( challengeVal == 0 ) {
 			challengeVal = 1;
 		}
@@ -1574,7 +1588,7 @@ void idAsyncServer::ProcessChallengeMessage( const netadr_t from, const idBitMsg
 	challenges[ slot ].pingTime = realTime;
 	challenges[ slot ].connected = false;
 
-	common->Printf( "Challenge generated for %s (id: %d, challenge: %d)\n", Sys_NetAdrToString( from ), clientId, challengeVal );
+	common->DPrintf( "Challenge generated for %s (id: %d)\n", Sys_NetAdrToString( from ), clientId );
 
 	byte buffer[ MAX_MESSAGE_SIZE ];
 	idBitMsg outMsg;
@@ -1955,7 +1969,13 @@ void idAsyncServer::ProcessPureMessage( const netadr_t from, const idBitMsg& msg
 }
 
 int idAsyncServer::ValidateChallenge( const netadr_t from, int challenge, int clientId ) {
+	if ( challenge == 0 ) {
+		return -1;	// a free or expired slot's value
+	}
 	for ( int i = 0; i < MAX_CHALLENGES; ++i ) {
+		if ( challenges[ i ].time == 0 || realTime - challenges[ i ].time > CHALLENGE_LIFETIME_MSEC ) {
+			continue;
+		}
 		if ( challenges[ i ].challenge == challenge && challenges[ i ].clientId == clientId &&
 			Sys_CompareNetAdrBase( challenges[ i ].address, from ) ) {
 			return i;

@@ -639,10 +639,11 @@ void idAsyncClient::ProcessUnreliableServerMessage( const idBitMsg& msg ) {
 		int numDuplicatedUsercmds = msg.ReadByte();
 		int aheadOfServer = msg.ReadShort();
 
+		// each part's size, then all of it: a snapshot that does not hold what it says is dropped
 		int ucmdBytes = msg.ReadShort();
 		byte ucmdBuffer[ MAX_MESSAGE_SIZE ];
-		if ( ucmdBytes > 0 && ucmdBytes <= (int)sizeof( ucmdBuffer ) ) {
-			msg.ReadData( ucmdBuffer, ucmdBytes );
+		if ( ucmdBytes < 0 || ucmdBytes > (int)sizeof( ucmdBuffer ) || msg.ReadData( ucmdBuffer, ucmdBytes ) != ucmdBytes ) {
+			return;
 		}
 		idBitMsg ucmdMsg;
 		ucmdMsg.InitRead( ucmdBuffer, ucmdBytes );
@@ -650,8 +651,8 @@ void idAsyncClient::ProcessUnreliableServerMessage( const idBitMsg& msg ) {
 
 		int gameBytes = msg.ReadShort();
 		byte gameBuffer[ MAX_MESSAGE_SIZE ];
-		if ( gameBytes > 0 && gameBytes <= (int)sizeof( gameBuffer ) ) {
-			msg.ReadData( gameBuffer, gameBytes );
+		if ( gameBytes < 0 || gameBytes > (int)sizeof( gameBuffer ) || msg.ReadData( gameBuffer, gameBytes ) != gameBytes ) {
+			return;
 		}
 		idBitMsg gameMsg;
 		gameMsg.InitRead( gameBuffer, gameBytes );
@@ -795,8 +796,13 @@ void idAsyncClient::ProcessConnectResponseMessage( const netadr_t from, const id
 	if ( !Sys_CompareNetAdrBase( from, serverAddress ) || clientState != CS_CONNECTING ) {
 		return;	// a repeated response must not reset the channel (Doom 3)
 	}
-	serverId = msg.ReadLong();
-	clientNum = msg.ReadLong();
+	const int newServerId = msg.ReadLong();
+	const int newClientNum = msg.ReadLong();
+	if ( newClientNum < 0 || newClientNum >= MAX_ASYNC_CLIENTS ) {
+		return;	// not a slot of this protocol
+	}
+	serverId = newServerId;
+	clientNum = newClientNum;
 	channel.Init( from, clientId );
 	clientState = CS_CONNECTED;
 	lastPacketTime = realTime;
