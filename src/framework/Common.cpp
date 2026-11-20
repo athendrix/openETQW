@@ -30,6 +30,7 @@
 #include "MachineSpec.h"
 #include "ReloadEngine.h"
 #include "BindingFile.h"
+#include "GamepadBinds.h"
 #include "../decllib/declLocStr.h"
 #include "../renderer/DeviceContext.h"
 #include "../renderer/FrameSyncTiming.h"
@@ -1447,7 +1448,36 @@ static void Com_Editor_f( const idCmdArgs& args ) {
 
 #endif
 
+/*
+==================
+Com_HasGamepadBindings
+
+Whether any key of the first gamepad is bound in the default context.
+==================
+*/
+static bool Com_HasGamepadBindings( void ) {
+	sdBindContext* context = idKeyInput::GetContext( "default" );
+	if ( context == NULL ) {
+		return false;
+	}
+	static const char* const special[] = { "left_trigger", "right_trigger", "dpad_up", "dpad_down", "dpad_left", "dpad_right" };
+	for ( int i = 1; i <= 32 + 6; i++ ) {
+		const char* name = i <= 32 ? va( "joy1_%d", i ) : va( "joy1_%s", special[ i - 33 ] );
+		idKey* key = idKeyInput::GetKey( name );
+		if ( key != NULL && idKeyInput::GetBinding( context, *key, NULL )[ 0 ] != '\0' ) {
+			return true;
+		}
+	}
+	return false;
+}
+
+static void Com_BindGamepadDefaults_f( const idCmdArgs& args ) {
+	cmdSystem->BufferCommandText( CMD_EXEC_APPEND, GAMEPAD_DEFAULT_BINDS );
+	common->Printf( "gamepad: default (Destiny style) layout bound to the first pad\n" );
+}
+
 void idCommonLocal::InitCommands() {
+	cmdSystem->AddCommand( "bindGamepadDefaults", Com_BindGamepadDefaults_f, CMD_FL_SYSTEM, "binds the default gamepad layout (Destiny style) to the first pad" );
 	cmdSystem->AddCommand( "quit", Com_Quit_f, CMD_FL_SYSTEM, "quits the game" );
 	cmdSystem->AddCommand( "exit", Com_Quit_f, CMD_FL_SYSTEM, "exits the game" );
 	cmdSystem->AddCommand( "status", Com_Status_f, CMD_FL_SYSTEM, "displays server status" );
@@ -1640,9 +1670,22 @@ void idCommonLocal::InitGame( bool resetConfigs ) {
 	}
 	cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "exec autoexec.cfg\n" );
 	cmdSystem->ExecuteCommandBuffer();
+	// a profile without gamepad bindings gets the default layout; the settings count as
+	// changed (below), so the next save keeps it, and a player who unbinds the pad on
+	// purpose keeps any one binding to stop this
+#ifdef ID_DEDICATED
+	const bool addGamepadBinds = false;	// a server has no pads
+#else
+	const bool addGamepadBinds = !Com_HasGamepadBindings();
+#endif
+	if ( addGamepadBinds ) {
+		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, GAMEPAD_DEFAULT_BINDS );
+		cmdSystem->ExecuteCommandBuffer();
+		Printf( "gamepad: no pad bindings in this profile; bound the default layout\n" );
+	}
 	StartupVariable( NULL );
 	cvarSystem->ClearModifiedFlags( CVAR_ARCHIVE );
-	if ( emptyBindingFile ) {
+	if ( emptyBindingFile || addGamepadBinds ) {
 		cvarSystem->SetModifiedFlags( CVAR_ARCHIVE );	// rewrite it with the defaults (#454)
 	}
 

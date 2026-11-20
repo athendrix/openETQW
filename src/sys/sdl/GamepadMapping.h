@@ -19,11 +19,15 @@ button: 1 A/cross, 2 B/circle, 3 X/square, 4 Y/triangle, 5 left bumper, 6 right 
 17 touchpad click, 18-22 misc 2-6.
 
 Axes (sdController::axis, read by the game's input modes as controllerAxis[n]):
-  0 right stick X (right +)    1 right stick Y (down +)
-  2 left stick X (right +)     3 left stick Y (down +)
+  0 left stick X (right +)     1 left stick Y (down +)
+  2 right stick X (right +)    3 right stick Y (down +)
   4 left trigger (0..1)        5 right trigger (0..1)
-  6 gyro yaw rate              7 gyro pitch rate
-Indices 0-3 are the retail XInput order. The gyro axes carry an angular velocity scaled by
+  6 gyro yaw rate (right +)    7 gyro pitch rate (down +)
+Indices 0-3 are the order the SDK game's input modes default to (InputMode.cpp: the
+player's forward is axis 1 and side axis 0, the look axes 2 and 3; the car's throttle 1
+and steering 0), so the stock vehicle settings drive with the left stick and look with
+the right one. (The reconstructed XInput backend sent the right stick first, which
+those defaults never matched.) The gyro axes carry an angular velocity scaled by
 SYS_GAMEPAD_GYRO_FULL_SCALE_DPS (1.0 = that many degrees a second), zero when the gyro is
 off or the pad has none.
 */
@@ -55,10 +59,10 @@ enum sysGamepadButton_t {
 };
 
 enum {
-	SYS_GP_AXIS_RIGHT_X = 0,
-	SYS_GP_AXIS_RIGHT_Y = 1,
-	SYS_GP_AXIS_LEFT_X = 2,
-	SYS_GP_AXIS_LEFT_Y = 3,
+	SYS_GP_AXIS_LEFT_X = 0,
+	SYS_GP_AXIS_LEFT_Y = 1,
+	SYS_GP_AXIS_RIGHT_X = 2,
+	SYS_GP_AXIS_RIGHT_Y = 3,
 	SYS_GP_AXIS_LEFT_TRIGGER = 4,
 	SYS_GP_AXIS_RIGHT_TRIGGER = 5,
 	SYS_GP_AXIS_GYRO_YAW = 6,

@@ -334,7 +334,8 @@ private:
 		axis[ SYS_GP_AXIS_GYRO_PITCH ] = 0.0f;
 		float gyro[ 3 ] = { 0.0f, 0.0f, 0.0f };
 		if ( gyroEnabled && SDL_GetGamepadSensorData( pad, SDL_SENSOR_GYRO, gyro, 3 ) ) {
-			// radians a second: [0] pitch (top edge towards you +), [1] yaw (turning left +)
+			// radians a second about SDL's sensor axes (X right, Y up, Z out of the pad towards
+			// the player): [0] aiming up +, [1] turning left +. The game wants right + and down +
 			const float scale = RAD2DEG( 1.0f ) / SYS_GAMEPAD_GYRO_FULL_SCALE_DPS;
 			axis[ SYS_GP_AXIS_GYRO_YAW ] = idMath::ClampFloat( -1.0f, 1.0f, -gyro[ 1 ] * scale );
 			axis[ SYS_GP_AXIS_GYRO_PITCH ] = idMath::ClampFloat( -1.0f, 1.0f, -gyro[ 0 ] * scale );
