@@ -14,6 +14,7 @@
 #include "AllowFailureReason.h"
 #include "ServerQuery.h"
 #include <cstdint>
+#include <random>
 
 static const int SERVER_EMPTY_RESEND_MSEC = 500;
 // a dropped client's disconnect message is resent this long (4 resends): a resend still in
@@ -1742,35 +1743,104 @@ void idAsyncServer::ProcessRemoteConsoleMessage( const netadr_t from, const idBi
 
 /*
 ==================
-idAsyncServer::ProcessGetInfoMessage
+idAsyncServer query handshake
 
-The server browser's query (ServerQuery.h): the server's settings (its serverinfo
-CVars) and its players, without a connection. Only for our protocol, and rate limited,
-since the answer is bigger than the question.
+The server browser's query (ServerQuery.h): a challenge request gets a small, stateless
+cookie; an info request that brings it back with the work done gets the server's
+settings (its serverinfo CVars, the keys the browser shows first) and its players.
 ==================
 */
 idCVar net_serverAnswerQueries( "net_serverAnswerQueries", "1", CVAR_SYSTEM | CVAR_BOOL | CVAR_NOCHEAT, "answer server browser queries (the menu's server list)" );
+idCVar net_serverQueryDifficulty( "net_serverQueryDifficulty", "16", CVAR_SYSTEM | CVAR_INTEGER | CVAR_NOCHEAT, "the server browser's proof of work, in leading zero bits of SHA-256 (each bit doubles a client's work); raised while flooded", SQ_MIN_DIFFICULTY, SQ_MAX_DIFFICULTY );
 
-void idAsyncServer::ProcessGetInfoMessage( const netadr_t from, const idBitMsg& msg ) {
-	static sqRateLimiter limiter;
-	if ( !active || !net_serverAnswerQueries.GetBool() || ( from.type != NA_IP && from.type != NA_LOOPBACK ) ) {
+namespace {
+
+sqQueryGate* QueryGate() {
+	static sqQueryGate* gate = NULL;
+	if ( gate == NULL ) {
+		uint8_t secret[ sqQueryGate::SECRET_SIZE ];
+		std::random_device random;
+		for ( int i = 0; i < sqQueryGate::SECRET_SIZE; i++ ) {
+			secret[ i ] = static_cast< uint8_t >( random() & 0xff );
+		}
+		gate = new sqQueryGate( secret );
+		memset( secret, 0, sizeof( secret ) );
+	}
+	gate->SetBaseDifficulty( net_serverQueryDifficulty.GetInteger() );
+	return gate;
+}
+
+// the cookie's address; false for an address type the query does not serve
+bool QueryAddress( const netadr_t& from, uint8_t address[ SQ_ADDRESS_SIZE ] ) {
+	if ( from.type == NA_IP ) {
+		SQ_MakeAddressV4( from.ip, from.port, address );
+		return true;
+	}
+	if ( from.type == NA_LOOPBACK ) {
+		static const unsigned char loopback[ 4 ] = { 127, 0, 0, 1 };
+		SQ_MakeAddressV4( loopback, from.port, address );
+		return true;
+	}
+	return false;
+}
+
+unsigned int QueryLimiterKey( const uint8_t address[ SQ_ADDRESS_SIZE ] ) {
+	// the address without the port; IPv6 hashed to the limiter's 32 bits
+	uint32_t key = 2166136261u;
+	for ( int i = 0; i < 16; i++ ) {
+		key = ( key ^ address[ i ] ) * 16777619u;
+	}
+	return key;
+}
+
+} // namespace
+
+void idAsyncServer::ProcessGetInfoChallengeMessage( const netadr_t from, const idBitMsg& msg ) {
+	// the answer is smaller than the question, so this only costs the server an HMAC
+	static sqRateLimiter limiter( 20, 1000 );
+	uint8_t address[ SQ_ADDRESS_SIZE ];
+	if ( !active || !net_serverAnswerQueries.GetBool() || !QueryAddress( from, address ) ) {
 		return;
 	}
 	int protocol = 0;
 	int nonce = 0;
-	if ( !SQ_ReadRequest( msg, protocol, nonce ) || protocol != ASYNC_PROTOCOL_VERSION ) {
+	if ( !SQ_ReadChallengeRequest( msg, protocol, nonce ) || protocol != ASYNC_PROTOCOL_VERSION ) {
 		return;
 	}
-	unsigned int address = 0;
-	memcpy( &address, from.ip, sizeof( address ) );
-	if ( !limiter.Allow( address, Sys_Milliseconds() ) ) {
+	const int now = Sys_Milliseconds();
+	if ( !limiter.Allow( QueryLimiterKey( address ), now ) ) {
+		return;
+	}
+	sqChallenge_t challenge;
+	QueryGate()->Issue( address, protocol, nonce, now, challenge );
+	byte buffer[ 128 ];
+	idBitMsg out;
+	out.InitWrite( buffer, sizeof( buffer ) );
+	out.BeginWriting();
+	SQ_WriteChallenge( out, challenge );
+	serverPort.SendPacket( from, out.GetData(), out.GetSize() );
+}
+
+void idAsyncServer::ProcessGetInfoMessage( const netadr_t from, const idBitMsg& msg ) {
+	static sqRateLimiter limiter( 100, 100 );
+	uint8_t address[ SQ_ADDRESS_SIZE ];
+	if ( !active || !net_serverAnswerQueries.GetBool() || !QueryAddress( from, address ) ) {
+		return;
+	}
+	sqChallenge_t challenge;
+	uint64_t work = 0;
+	if ( !SQ_ReadInfoRequest( msg, challenge, work ) || challenge.protocol != ASYNC_PROTOCOL_VERSION ) {
+		return;
+	}
+	const int now = Sys_Milliseconds();
+	if ( !QueryGate()->Check( address, challenge, work, now ) || !limiter.Allow( QueryLimiterKey( address ), now ) ) {
 		return;
 	}
 
 	sqInfo_t* info = new sqInfo_t;
 	info->Clear();
 	info->protocol = ASYNC_PROTOCOL_VERSION;
-	info->nonce = nonce;
+	info->nonce = challenge.nonce;
 
 	// the keys the browser shows first, then the rest of the serverinfo
 	const idDict& serverInfo = sessLocal.mapSpawnData.serverInfo;
@@ -1820,7 +1890,11 @@ bool idAsyncServer::ConnectionlessMessage( const netadr_t from, const idBitMsg& 
 		ProcessConnectMessage( from, msg );
 		return true;
 	}
-	if ( idStr::Icmp( command, "getInfo" ) == 0 ) {
+	if ( idStr::Icmp( command, SQ_CHALLENGE_REQUEST ) == 0 ) {
+		ProcessGetInfoChallengeMessage( from, msg );
+		return true;
+	}
+	if ( idStr::Icmp( command, SQ_REQUEST ) == 0 ) {
 		ProcessGetInfoMessage( from, msg );
 		return true;
 	}

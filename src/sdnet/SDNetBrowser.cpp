@@ -9,7 +9,7 @@ profile), RefreshSession for one server. Retail answered those through Demonware
 server; the offline service answered nothing, so the browser stayed empty.
 
 Here each tab is filled by asking the servers themselves (ServerQuery.h):
-  LAN        a broadcast to the first four server ports, and the saved server list;
+  LAN        a broadcast to the server port (27733), and the saved server list;
   Internet   the saved server list (net_serverList, edited with addServer, removeServer);
   History    the last servers joined (written here when a connect is accepted);
   Favorites  the servers starred in the browser.
@@ -33,14 +33,21 @@ SDNet_BrowserFrame, so the tasks' locks have nothing to guard.
 #include "../framework/async/ServerQuery.h"
 #include "SDNetBrowser.h"
 
+#include <condition_variable>
+#include <deque>
+#include <mutex>
+#include <thread>
+#include <utility>
+
+idCVar net_browserMaxDifficulty( "net_browserMaxDifficulty", "24", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_INTEGER | CVAR_NOCHEAT, "the most proof of work (leading zero bits) the server browser does for one server; a server asking more is not listed", SQ_MIN_DIFFICULTY, SQ_MAX_DIFFICULTY );
 idCVar net_serverList( "net_serverList", "", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_NOCHEAT, "servers the menu's server browser lists (Internet tab), separated by spaces: host or host:port. Edit with addServer and removeServer" );
 
 namespace {
 
-const int BROWSER_LAN_PORTS			= 4;		// PORT_SERVER and the next three, as a dedicated server picks
 const int BROWSER_RESEND_MSEC		= 700;
 const int BROWSER_TRIES				= 3;
-const int BROWSER_FIND_MSEC			= 2500;		// a find ends this long after it starts
+const int BROWSER_FIND_MSEC			= 4000;		// a find ends this long after it starts
+const int BROWSER_REFRESH_MSEC		= 3000;
 const int BROWSER_NO_PING			= 999;		// what the game shows as no answer
 
 class sdNetSessionBrowser : public sdNetSession {
@@ -127,20 +134,134 @@ public:
 	int							deadline;
 };
 
+/*
+The proof of work runs on one worker thread, so the menu never waits on it: a 16-bit
+puzzle is about 65,000 hashes, some tens of milliseconds.
+*/
+class sdPowSolver {
+public:
+	sdPowSolver() : stop( false ), started( false ) {}
+	~sdPowSolver() { Stop(); }
+
+	void Submit( int id, const uint8_t cookie[ SQ_COOKIE_SIZE ], int difficulty ) {
+		std::lock_guard< std::mutex > lock( mutex );
+		if ( !started ) {
+			stop = false;
+			worker = std::thread( &sdPowSolver::Run, this );
+			started = true;
+		}
+		job_t job;
+		job.id = id;
+		memcpy( job.cookie, cookie, SQ_COOKIE_SIZE );
+		job.difficulty = difficulty;
+		jobs.push_back( job );
+		wake.notify_one();
+	}
+
+	// drops a job not started yet; one already running finishes and its result is ignored
+	void Cancel( int id ) {
+		std::lock_guard< std::mutex > lock( mutex );
+		for ( size_t i = 0; i < jobs.size(); i++ ) {
+			if ( jobs[ i ].id == id ) {
+				jobs.erase( jobs.begin() + i );
+				return;
+			}
+		}
+	}
+
+	bool TakeResult( int& id, uint64_t& work ) {
+		std::lock_guard< std::mutex > lock( mutex );
+		if ( results.empty() ) {
+			return false;
+		}
+		id = results.front().first;
+		work = results.front().second;
+		results.pop_front();
+		return true;
+	}
+
+	void Stop() {
+		{
+			std::lock_guard< std::mutex > lock( mutex );
+			if ( !started ) {
+				return;
+			}
+			stop = true;
+			jobs.clear();
+			wake.notify_one();
+		}
+		worker.join();
+		std::lock_guard< std::mutex > lock( mutex );
+		results.clear();
+		started = false;
+	}
+
+private:
+	struct job_t {
+		int		id;
+		uint8_t	cookie[ SQ_COOKIE_SIZE ];
+		int		difficulty;
+	};
+
+	void Run() {
+		while ( true ) {
+			job_t job;
+			{
+				std::unique_lock< std::mutex > lock( mutex );
+				wake.wait( lock, [this] { return stop || !jobs.empty(); } );
+				if ( stop ) {
+					return;
+				}
+				job = jobs.front();
+				jobs.pop_front();
+			}
+			uint64_t work = 0;
+			bool found = false;
+			while ( !found ) {
+				found = SQ_SolveWork( job.cookie, job.difficulty, work, 4096 );
+				std::lock_guard< std::mutex > lock( mutex );
+				if ( stop ) {
+					return;
+				}
+			}
+			std::lock_guard< std::mutex > lock( mutex );
+			results.push_back( std::make_pair( job.id, work ) );
+		}
+	}
+
+	std::mutex								mutex;
+	std::condition_variable					wake;
+	std::deque< job_t >						jobs;
+	std::deque< std::pair< int, uint64_t > >	results;
+	std::thread								worker;
+	bool									stop;
+	bool									started;
+};
+
+enum queryStage_t {
+	QS_CHALLENGE,	// asked for a cookie (step 1)
+	QS_SOLVING,		// the worker is doing the proof of work
+	QS_INFO,		// asked for the info (step 3)
+	QS_DONE			// answered, or gave up
+};
+
 struct query_t {
+	int						id;
 	sdNetTaskBrowser*		task;
 	sdNetSessionBrowser*	session;	// a refresh's session; NULL for a find
 	netadr_t				address;
-	bool					broadcast;
+	bool					broadcast;	// a LAN broadcast: each server answering gets a query of its own
 	int						nonce;
 	int						lastSent;
 	int						tries;
-	bool					answered;
+	queryStage_t			stage;
+	sqChallenge_t			challenge;
+	uint64_t				work;
 };
 
 class sdServerBrowser {
 public:
-	sdServerBrowser() : nextNonce( 1 ) {}
+	sdServerBrowser() : nextNonce( 1 ), nextId( 1 ) {}
 
 	sdNetSession* AllocSession( const netadr_t* address ) {
 		netadr_t adr;
@@ -155,7 +276,7 @@ public:
 	void FreeSession( sdNetSession* session ) {
 		for ( int i = queries.Num() - 1; i >= 0; i-- ) {
 			if ( queries[ i ].session == session ) {
-				queries.RemoveIndex( i );
+				RemoveQuery( i );
 			}
 		}
 		delete static_cast< sdNetSessionBrowser* >( session );
@@ -175,10 +296,8 @@ public:
 			netadr_t adr;
 			memset( &adr, 0, sizeof( adr ) );
 			adr.type = NA_BROADCAST;
-			for ( int i = 0; i < BROWSER_LAN_PORTS; i++ ) {
-				adr.port = static_cast< unsigned short >( PORT_SERVER + i );
-				AddQuery( task, NULL, adr, true );
-			}
+			adr.port = PORT_SERVER;
+			AddQuery( task, NULL, adr, true );
 		}
 		if ( lan || internet ) {
 			idList< netadr_t > listed;
@@ -199,7 +318,7 @@ public:
 			return NULL;
 		}
 		sdNetTaskBrowser* task = NewTask();
-		task->deadline = Sys_Milliseconds() + BROWSER_RESEND_MSEC * BROWSER_TRIES + 100;
+		task->deadline = Sys_Milliseconds() + BROWSER_REFRESH_MSEC;
 		int asked = 0;
 		for ( int i = 0; i < sessions.Num(); i++ ) {
 			sdNetSessionBrowser* session = static_cast< sdNetSessionBrowser* >( sessions[ i ] );
@@ -217,7 +336,7 @@ public:
 	void FreeTask( sdNetTask* task ) {
 		for ( int i = queries.Num() - 1; i >= 0; i-- ) {
 			if ( queries[ i ].task == task ) {
-				queries.RemoveIndex( i );
+				RemoveQuery( i );
 			}
 		}
 		tasks.Remove( static_cast< sdNetTaskBrowser* >( task ) );
@@ -230,18 +349,28 @@ public:
 		}
 		const int now = Sys_Milliseconds();
 		ReadAnswers( now );
+		TakeSolutions( now );
 
-		// resend what has not been answered, and end the tasks that are done
+		// resend what has not been answered: a lost cookie or a lost info answer starts
+		// over with a new cookie (the server answers a cookie once)
 		for ( int i = 0; i < queries.Num(); i++ ) {
 			query_t& query = queries[ i ];
-			if ( query.answered && !query.broadcast ) {
+			if ( query.task->state == sdNetTask::TS_DONE || query.stage == QS_DONE || query.stage == QS_SOLVING ) {
 				continue;
 			}
-			if ( query.task->state == sdNetTask::TS_DONE || query.tries >= BROWSER_TRIES || now - query.lastSent < BROWSER_RESEND_MSEC ) {
+			if ( now - query.lastSent < BROWSER_RESEND_MSEC ) {
 				continue;
 			}
-			Send( query, now );
+			if ( query.tries >= BROWSER_TRIES ) {
+				if ( !query.broadcast ) {
+					query.stage = QS_DONE;
+				}
+				continue;
+			}
+			query.stage = QS_CHALLENGE;
+			SendChallengeRequest( query, now );
 		}
+
 		// a task is done at its deadline, or once every server it asked has answered or
 		// used up its tries; a LAN broadcast can be answered by anyone, so it waits for
 		// the deadline
@@ -253,22 +382,23 @@ public:
 			bool outstanding = false;
 			for ( int j = 0; j < queries.Num(); j++ ) {
 				const query_t& query = queries[ j ];
-				if ( query.task != task ) {
-					continue;
-				}
-				if ( query.broadcast ) {
-					outstanding = true;
-				} else if ( !query.answered && ( query.tries < BROWSER_TRIES || now - query.lastSent < BROWSER_RESEND_MSEC ) ) {
+				if ( query.task == task && ( query.broadcast || query.stage != QS_DONE ) ) {
 					outstanding = true;
 				}
 			}
 			if ( now >= task->deadline || !outstanding ) {
 				task->state = sdNetTask::TS_DONE;
+				for ( int j = queries.Num() - 1; j >= 0; j-- ) {
+					if ( queries[ j ].task == task ) {
+						RemoveQuery( j );
+					}
+				}
 			}
 		}
 	}
 
 	void Shutdown() {
+		solver.Stop();
 		queries.Clear();
 		for ( int i = 0; i < tasks.Num(); i++ ) {
 			tasks[ i ]->state = sdNetTask::TS_DONE;
@@ -328,28 +458,71 @@ private:
 		return true;
 	}
 
-	void AddQuery( sdNetTaskBrowser* task, sdNetSessionBrowser* session, const netadr_t& address, bool broadcast ) {
+	query_t& NewQuery( sdNetTaskBrowser* task, sdNetSessionBrowser* session, const netadr_t& address, bool broadcast, int nonce ) {
 		query_t& query = queries.Alloc();
+		memset( &query, 0, sizeof( query ) );
+		query.id = nextId++;
 		query.task = task;
 		query.session = session;
 		query.address = address;
 		query.broadcast = broadcast;
-		query.nonce = nextNonce++ & 0x7fffffff;
-		query.lastSent = 0;
-		query.tries = 0;
-		query.answered = false;
-		Send( query, Sys_Milliseconds() );
+		query.nonce = nonce;
+		query.stage = QS_CHALLENGE;
+		return query;
 	}
 
-	void Send( query_t& query, int now ) {
-		byte buffer[ 64 ];
+	void AddQuery( sdNetTaskBrowser* task, sdNetSessionBrowser* session, const netadr_t& address, bool broadcast ) {
+		query_t& query = NewQuery( task, session, address, broadcast, nextNonce++ & 0x7fffffff );
+		SendChallengeRequest( query, Sys_Milliseconds() );
+	}
+
+	void RemoveQuery( int index ) {
+		if ( queries[ index ].stage == QS_SOLVING ) {
+			solver.Cancel( queries[ index ].id );
+		}
+		queries.RemoveIndex( index );
+	}
+
+	void SendChallengeRequest( query_t& query, int now ) {
+		byte buffer[ 128 ];
 		idBitMsg msg;
 		msg.InitWrite( buffer, sizeof( buffer ) );
 		msg.BeginWriting();
-		SQ_WriteRequest( msg, ASYNC_PROTOCOL_VERSION, query.nonce );
+		SQ_WriteChallengeRequest( msg, ASYNC_PROTOCOL_VERSION, query.nonce );
 		port.SendPacket( query.address, msg.GetData(), msg.GetSize() );
 		query.lastSent = now;
 		query.tries++;
+	}
+
+	void SendInfoRequest( query_t& query, int now ) {
+		byte buffer[ 128 ];
+		idBitMsg msg;
+		msg.InitWrite( buffer, sizeof( buffer ) );
+		msg.BeginWriting();
+		SQ_WriteInfoRequest( msg, query.challenge, query.work );
+		port.SendPacket( query.address, msg.GetData(), msg.GetSize() );
+		query.lastSent = now;
+		query.stage = QS_INFO;
+	}
+
+	void StartSolving( query_t& query, const sqChallenge_t& challenge ) {
+		query.challenge = challenge;
+		query.stage = QS_SOLVING;
+		solver.Submit( query.id, challenge.cookie, challenge.difficulty );
+	}
+
+	void TakeSolutions( int now ) {
+		int id = 0;
+		uint64_t work = 0;
+		while ( solver.TakeResult( id, work ) ) {
+			for ( int i = 0; i < queries.Num(); i++ ) {
+				if ( queries[ i ].id == id && queries[ i ].stage == QS_SOLVING ) {
+					queries[ i ].work = work;
+					SendInfoRequest( queries[ i ], now );
+					break;
+				}
+			}
+		}
 	}
 
 	void ReadAnswers( int now ) {
@@ -367,40 +540,73 @@ private:
 			}
 			char command[ 32 ];
 			msg.ReadString( command, sizeof( command ) );
-			if ( idStr::Icmp( command, SQ_RESPONSE ) != 0 ) {
-				continue;
+			if ( idStr::Icmp( command, SQ_CHALLENGE ) == 0 ) {
+				sqChallenge_t challenge;
+				if ( SQ_ReadChallenge( msg, challenge ) && challenge.protocol == ASYNC_PROTOCOL_VERSION ) {
+					Challenged( from, challenge );
+				}
+			} else if ( idStr::Icmp( command, SQ_RESPONSE ) == 0 ) {
+				if ( info == NULL ) {
+					info = new sqInfo_t;
+				}
+				if ( SQ_ReadResponse( msg, *info ) && info->protocol == ASYNC_PROTOCOL_VERSION ) {
+					Answered( from, *info, now );
+				}
 			}
-			if ( info == NULL ) {
-				info = new sqInfo_t;
-			}
-			if ( !SQ_ReadResponse( msg, *info ) || info->protocol != ASYNC_PROTOCOL_VERSION ) {
-				continue;
-			}
-			Answer( from, *info, now );
 		}
 		delete info;
 	}
 
-	void Answer( const netadr_t& from, const sqInfo_t& info, int now ) {
+	static bool SameAddress( const netadr_t& a, const netadr_t& b ) {
+		return Sys_CompareNetAdrBase( a, b ) && a.port == b.port;
+	}
+
+	void Challenged( const netadr_t& from, const sqChallenge_t& challenge ) {
+		if ( challenge.difficulty > net_browserMaxDifficulty.GetInteger() ) {
+			return;	// more work than we are willing to do for one server
+		}
 		for ( int i = 0; i < queries.Num(); i++ ) {
 			query_t& query = queries[ i ];
-			if ( query.nonce != info.nonce || query.task->state == sdNetTask::TS_DONE ) {
+			if ( query.nonce != challenge.nonce || query.task->state == sdNetTask::TS_DONE ) {
 				continue;
 			}
-			if ( !query.broadcast && !( Sys_CompareNetAdrBase( from, query.address ) && from.port == query.address.port ) ) {
+			if ( !query.broadcast ) {
+				if ( query.stage == QS_CHALLENGE && SameAddress( from, query.address ) ) {
+					StartSolving( query, challenge );
+				}
 				continue;
 			}
-			query.answered = true;
+			// a server answering a broadcast gets a query of its own, once
+			sdNetTaskBrowser* task = query.task;
+			for ( int j = 0; j < queries.Num(); j++ ) {
+				if ( queries[ j ].task == task && !queries[ j ].broadcast && SameAddress( queries[ j ].address, from ) ) {
+					return;
+				}
+			}
+			query_t& found = NewQuery( task, NULL, from, false, challenge.nonce );
+			found.tries = 1;
+			StartSolving( found, challenge );
+			return;
+		}
+	}
+
+	void Answered( const netadr_t& from, const sqInfo_t& info, int now ) {
+		for ( int i = 0; i < queries.Num(); i++ ) {
+			query_t& query = queries[ i ];
+			if ( query.nonce != info.nonce || query.stage != QS_INFO || query.broadcast || !SameAddress( from, query.address ) ) {
+				continue;
+			}
+			query.stage = QS_DONE;
 			const int ping = now - query.lastSent;
 			if ( query.session != NULL ) {
 				query.session->Update( info, ping );
 				return;
 			}
-			// a find: one session per server, whichever query found it first
+			// a find: one session per server
 			idList< sdNetSession* >& list = *query.task->findList;
 			sdNetSessionBrowser* session = NULL;
 			for ( int j = 0; j < list.Num(); j++ ) {
-				if ( list[ j ]->GetAddress() == from ) {
+				if ( SameAddress( list[ j ]->GetAddress(), from ) ) {
 					session = static_cast< sdNetSessionBrowser* >( list[ j ] );
 					break;
 				}
@@ -417,7 +623,9 @@ private:
 	idPort						port;
 	idList< query_t >			queries;
 	idList< sdNetTaskBrowser* >	tasks;
+	sdPowSolver					solver;
 	int							nextNonce;
+	int							nextId;
 };
 
 sdServerBrowser* browser = NULL;

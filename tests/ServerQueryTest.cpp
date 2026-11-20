@@ -84,26 +84,130 @@ static bool ReadCommand( idBitMsg& msg, const char* expected ) {
 	return strcmp( command, expected ) == 0;
 }
 
-static void TestRequest() {
-	byte buffer[ 64 ];
+static void Hex( const uint8_t* bytes, int size, char* out ) {
+	for ( int i = 0; i < size; i++ ) {
+		snprintf( out + i * 2, 3, "%02x", bytes[ i ] );
+	}
+}
+
+static void TestHashes() {
+	uint8_t digest[ 32 ];
+	char hex[ 65 ];
+	sqSha256::Hash( "abc", 3, digest );
+	Hex( digest, 32, hex );
+	Expect( strcmp( hex, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" ) == 0, "SHA-256 of abc" );
+	sqSha256::Hash( "", 0, digest );
+	Hex( digest, 32, hex );
+	Expect( strcmp( hex, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" ) == 0, "SHA-256 of nothing" );
+	const char* two = "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq";
+	sqSha256::Hash( two, strlen( two ), digest );
+	Hex( digest, 32, hex );
+	Expect( strcmp( hex, "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1" ) == 0, "SHA-256 over two blocks" );
+
+	// RFC 4231 test cases 1 and 2
+	uint8_t key1[ 20 ];
+	memset( key1, 0x0b, sizeof( key1 ) );
+	SQ_HmacSha256( key1, sizeof( key1 ), "Hi There", 8, digest );
+	Hex( digest, 32, hex );
+	Expect( strcmp( hex, "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7" ) == 0, "HMAC-SHA-256 RFC 4231 case 1" );
+	SQ_HmacSha256( "Jefe", 4, "what do ya want for nothing?", 28, digest );
+	Hex( digest, 32, hex );
+	Expect( strcmp( hex, "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843" ) == 0, "HMAC-SHA-256 RFC 4231 case 2" );
+
+	// the one-block fast path agrees with the general one
+	uint8_t message[ 24 ] = { 1, 2, 3, 4, 5 };
+	uint8_t block[ 64 ];
+	uint8_t slow[ 32 ];
+	sqSha256::PadBlock( message, sizeof( message ), block );
+	sqSha256::HashPaddedBlock( block, digest );
+	sqSha256::Hash( message, sizeof( message ), slow );
+	Expect( memcmp( digest, slow, 32 ) == 0, "the padded one-block hash" );
+
+	const uint8_t zeros[ 4 ] = { 0x00, 0x00, 0x1f, 0xff };
+	Expect( SQ_LeadingZeroBits( zeros, 4 ) == 19, "leading zero bits" );
+}
+
+static void TestHandshake() {
+	byte buffer[ 128 ];
 	idBitMsg msg;
 	msg.InitWrite( buffer, sizeof( buffer ) );
 	msg.BeginWriting();
-	SQ_WriteRequest( msg, 0x4f450005, 12345 );
-	Expect( ReadCommand( msg, SQ_REQUEST ), "request command" );
+	SQ_WriteChallengeRequest( msg, 0x4f450005, 12345 );
+	const int requestSize = msg.GetSize();
+	Expect( ReadCommand( msg, SQ_CHALLENGE_REQUEST ), "challenge request command" );
 	int protocol = 0, nonce = 0;
-	Expect( SQ_ReadRequest( msg, protocol, nonce ), "request reads" );
-	Expect( protocol == 0x4f450005 && nonce == 12345, "request values" );
+	Expect( SQ_ReadChallengeRequest( msg, protocol, nonce ) && protocol == 0x4f450005 && nonce == 12345, "challenge request reads" );
 
-	// a request cut short is refused
-	idBitMsg shortMsg;
-	shortMsg.InitWrite( buffer, sizeof( buffer ) );
-	shortMsg.BeginWriting();
-	shortMsg.WriteShort( -1 );
-	shortMsg.WriteString( SQ_REQUEST );
-	shortMsg.WriteLong( 1 );
-	Expect( ReadCommand( shortMsg, SQ_REQUEST ), "short request command" );
-	Expect( !SQ_ReadRequest( shortMsg, protocol, nonce ), "a request without its nonce is refused" );
+	// without its padding the request is refused
+	msg.BeginWriting();
+	msg.WriteShort( -1 );
+	msg.WriteString( SQ_CHALLENGE_REQUEST );
+	msg.WriteLong( 1 );
+	msg.WriteLong( 2 );
+	Expect( ReadCommand( msg, SQ_CHALLENGE_REQUEST ) && !SQ_ReadChallengeRequest( msg, protocol, nonce ), "an unpadded challenge request is refused" );
+
+	uint8_t secret[ sqQueryGate::SECRET_SIZE ];
+	for ( int i = 0; i < sqQueryGate::SECRET_SIZE; i++ ) {
+		secret[ i ] = static_cast< uint8_t >( i * 7 + 1 );
+	}
+	sqQueryGate gate( secret );
+	gate.SetBaseDifficulty( 10 );	// cheap for the test
+	const unsigned char ip[ 4 ] = { 192, 0, 2, 7 };
+	const unsigned char otherIp[ 4 ] = { 198, 51, 100, 9 };
+	uint8_t address[ SQ_ADDRESS_SIZE ];
+	uint8_t other[ SQ_ADDRESS_SIZE ];
+	SQ_MakeAddressV4( ip, 27960, address );
+	SQ_MakeAddressV4( otherIp, 27960, other );
+
+	sqChallenge_t challenge;
+	const int now = 100000;
+	gate.Issue( address, 0x4f450005, 12345, now, challenge );
+	Expect( challenge.difficulty == 10, "issued at the base difficulty" );
+
+	// the challenge is no bigger than the request: no amplification
+	msg.BeginWriting();
+	SQ_WriteChallenge( msg, challenge );
+	Expect( msg.GetSize() <= requestSize, "the challenge answer is not bigger than its request" );
+	sqChallenge_t read;
+	Expect( ReadCommand( msg, SQ_CHALLENGE ) && SQ_ReadChallenge( msg, read ) && memcmp( read.cookie, challenge.cookie, SQ_COOKIE_SIZE ) == 0 && read.nonce == 12345, "the challenge reads" );
+
+	uint64_t work = 0;
+	Expect( SQ_SolveWork( challenge.cookie, challenge.difficulty, work, 1 << 20 ), "the work is found" );
+	Expect( SQ_WorkMeets( challenge.cookie, work, challenge.difficulty ), "the found work meets the difficulty" );
+
+	msg.BeginWriting();
+	SQ_WriteInfoRequest( msg, challenge, work );
+	sqChallenge_t request;
+	uint64_t requestWork = 0;
+	Expect( ReadCommand( msg, SQ_REQUEST ) && SQ_ReadInfoRequest( msg, request, requestWork ) && requestWork == work, "the info request reads" );
+
+	Expect( !gate.Check( other, request, requestWork, now + 500 ), "a cookie for another address is refused" );
+	sqChallenge_t lowered = request;
+	lowered.difficulty = 9;
+	Expect( !gate.Check( address, lowered, requestWork, now + 500 ), "a lowered difficulty is refused" );
+	Expect( !gate.Check( address, request, requestWork + 1, now + 500 ) || SQ_WorkMeets( request.cookie, requestWork + 1, 10 ), "wrong work is refused" );
+	Expect( !gate.Check( address, request, requestWork, now + ( SQ_COOKIE_LIFETIME + 2 ) * 1000 ), "an old cookie is refused" );
+	Expect( gate.Check( address, request, requestWork, now + 500 ), "the right request is answered" );
+	Expect( !gate.Check( address, request, requestWork, now + 600 ), "a cookie answers once" );
+
+	// a flood raises the difficulty, quiet brings it back down
+	sqQueryGate flooded( secret );
+	flooded.SetBaseDifficulty( 16 );
+	int t = 0;
+	for ( int second = 0; second < 5; second++ ) {
+		for ( int i = 0; i < 600; i++ ) {
+			flooded.Issue( address, 1, i, t + i, challenge );
+		}
+		t += 1000;
+	}
+	flooded.Issue( address, 1, 0, t, challenge );
+	Expect( flooded.GetDifficulty() > 16, "a flood raises the difficulty" );
+	const int raised = flooded.GetDifficulty();
+	for ( int second = 0; second < 40; second++ ) {
+		t += 1000;
+		flooded.Issue( address, 1, 0, t, challenge );
+	}
+	Expect( flooded.GetDifficulty() < raised && flooded.GetDifficulty() >= 16, "quiet brings it back down, not below the base" );
 }
 
 static void TestRoundTrip() {
@@ -251,7 +355,8 @@ static void TestRateLimiter() {
 }
 
 int main() {
-	TestRequest();
+	TestHashes();
+	TestHandshake();
 	TestRoundTrip();
 	TestOnePacket();
 	TestHostile();
