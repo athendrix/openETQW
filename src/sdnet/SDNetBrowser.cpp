@@ -72,6 +72,7 @@ idCVar net_serverList( "net_serverList", "", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_N
 
 idCVar net_lanSweepRate( "net_lanSweepRate", "50", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_INTEGER | CVAR_NOCHEAT, "packets a second the server browser's LAN sweep sends, asking each host on the local subnets for a server; 0 turns the sweep off (broadcasts are still sent)", 0, 1000 );
 idCVar net_lanSweepMaxHosts( "net_lanSweepMaxHosts", "4096", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_INTEGER | CVAR_NOCHEAT, "the most hosts one LAN sweep asks; a bigger subnet is swept in the block of this size around this computer's address", 0, 65536 );
+idCVar net_lanServersFound( "net_lanServersFound", "0", CVAR_SYSTEM | CVAR_INTEGER | CVAR_ROM | CVAR_NOCHEAT, "servers on the LAN that answered since the game started (the game's browser opens on its LAN tab when there are any)" );
 idCVar net_lanScanAtStart( "net_lanScanAtStart", "1", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_BOOL | CVAR_NOCHEAT, "look for LAN servers as soon as the game starts, not only when the LAN tab is opened" );
 
 namespace {
@@ -796,6 +797,7 @@ private:
 		}
 		if ( !known && lanServers.Num() < LAN_MAX_SERVERS ) {
 			lanServers.Append( from );
+			net_lanServersFound.SetInteger( lanServers.Num() );
 		}
 		// the first LAN search to take it uses this cookie; the server answers a cookie
 		// once, so any other asks for its own

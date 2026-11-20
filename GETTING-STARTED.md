@@ -174,7 +174,9 @@ UDP 27733 for both in the firewall); a LAN search also asks every IPv6 neighbour
 
 ## 5. Joining
 
-**From the menu:** open the server browser.
+**From the menu:** open the server browser. The first time in a session it opens on
+your Favorites if you have saved any, else on the LAN if a server there has answered,
+else on the Internet.
 
 - **LAN** finds servers on your local network by itself (and also lists your saved
   servers). It broadcasts to UDP 27733 and, because some networks (guest Wi-Fi, some
