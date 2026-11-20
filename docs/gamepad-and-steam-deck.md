@@ -96,7 +96,7 @@ The Linux x64 build runs natively on the Deck.
 2. Copy your retail 1.5 `base/` folder (with `pak000`-`pak008.pk4`) to the Deck, for
    example to `~/etqw/base`.
 3. In desktop mode, add the AppImage to Steam as a non-Steam game, with the launch option
-   `ETQW_DATA_PATH=$HOME/etqw %command%`.
+   `OPENETQW_BASEPATH=$HOME/etqw %command%`.
 4. Controller: in the game's controller settings, either turn Steam Input off for it,
    which gives the game the Deck's back buttons and gyro directly, or keep Steam Input on
    with the "Gamepad" template. Steam Input then shows the game a plain Xbox pad: no back
