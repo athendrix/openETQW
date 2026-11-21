@@ -36,7 +36,7 @@ env:
   MESON_VERSION: "1.12.1"
   NINJA_VERSION: "1.13.2"
   SDL3_TAG: release-3.4.16
-  OPENETQW_COMPANION_REPO: jm2/openETQW-game
+  OPENETQW_COMPANION_REPO: ${{ github.repository_owner }}/openETQW-game
 
 jobs:
   cross-build:

@@ -30,6 +30,8 @@
 #include "MachineSpec.h"
 #include "ReloadEngine.h"
 #include "BindingFile.h"
+#include "GamepadBinds.h"
+#include "../sys/SteamDeck.h"
 #include "../decllib/declLocStr.h"
 #include "../renderer/DeviceContext.h"
 #include "../renderer/FrameSyncTiming.h"
@@ -77,6 +79,10 @@ struct versionString_t {
 
 static versionString_t versionString;
 
+// the Destiny layout's version: 2 added quick tool and item (V, F, RB) and sprint until
+// you stop (Shift); a saved profile with an older one gets the new keys once
+static const int DESTINY_LAYOUT_VERSION = 3;
+idCVar com_destinyLayout( "com_destinyLayout", "0", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_INTEGER | CVAR_NOCHEAT, "the version of the Destiny control layout this profile has (the engine updates the bindings when it is older)" );
 idCVar com_version( "si_version", versionString.string, CVAR_SYSTEM | CVAR_ROM | CVAR_SERVERINFO, "engine version" );
 // the openETQW build (tools/build/openetqw_version.py); si_version keeps the
 // retail format servers advertise
@@ -1447,7 +1453,42 @@ static void Com_Editor_f( const idCmdArgs& args ) {
 
 #endif
 
+/*
+==================
+Com_HasGamepadBindings
+
+Whether any key of the first gamepad is bound in the default context.
+==================
+*/
+static bool Com_HasGamepadBindings( void ) {
+	sdBindContext* context = idKeyInput::GetContext( "default" );
+	if ( context == NULL ) {
+		return false;
+	}
+	static const char* const special[] = { "left_trigger", "right_trigger", "dpad_up", "dpad_down", "dpad_left", "dpad_right" };
+	for ( int i = 1; i <= 32 + 6; i++ ) {
+		const char* name = i <= 32 ? va( "joy1_%d", i ) : va( "joy1_%s", special[ i - 33 ] );
+		idKey* key = idKeyInput::GetKey( name );
+		if ( key != NULL && idKeyInput::GetBinding( context, *key, NULL )[ 0 ] != '\0' ) {
+			return true;
+		}
+	}
+	return false;
+}
+
+static void Com_BindDestinyKeyboard_f( const idCmdArgs& args ) {
+	cmdSystem->BufferCommandText( CMD_EXEC_APPEND, DESTINY_KEYBOARD_BINDS );
+	common->Printf( "keyboard: Destiny style layout bound over the current bindings\n" );
+}
+
+static void Com_BindGamepadDefaults_f( const idCmdArgs& args ) {
+	cmdSystem->BufferCommandText( CMD_EXEC_APPEND, GAMEPAD_DEFAULT_BINDS );
+	common->Printf( "gamepad: default (Destiny style) layout bound to the first pad\n" );
+}
+
 void idCommonLocal::InitCommands() {
+	cmdSystem->AddCommand( "bindGamepadDefaults", Com_BindGamepadDefaults_f, CMD_FL_SYSTEM, "binds the default gamepad layout (Destiny style) to the first pad" );
+	cmdSystem->AddCommand( "bindDestinyKeyboard", Com_BindDestinyKeyboard_f, CMD_FL_SYSTEM, "binds Destiny's PC keys (Q grenade, C melee, E interact, V tools, F items, right mouse to aim) over the current bindings" );
 	cmdSystem->AddCommand( "quit", Com_Quit_f, CMD_FL_SYSTEM, "quits the game" );
 	cmdSystem->AddCommand( "exit", Com_Quit_f, CMD_FL_SYSTEM, "exits the game" );
 	cmdSystem->AddCommand( "status", Com_Status_f, CMD_FL_SYSTEM, "displays server status" );
@@ -1619,6 +1660,7 @@ void idCommonLocal::InitGame( bool resetConfigs ) {
 	// so it doesn't count
 	const bool freshProfile = !safeMode && fileSystem->ReadFile( CONFIG_FILE, NULL, NULL ) <= 0;
 	bool emptyBindingFile = false;
+	bool savedBindings = false;
 	if ( !safeMode ) {
 		// a binding file with no bindings (saved by a v0.1.0 draft before #363) would
 		// unbind every key the defaults just bound, so the defaults are kept (#454,
@@ -1630,6 +1672,7 @@ void idCommonLocal::InitGame( bool resetConfigs ) {
 		if ( bindings != NULL ) {
 			fileSystem->FreeFile( bindings );
 		}
+		savedBindings = hasBindings;
 		if ( hasBindings ) {
 			cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "exec " BINDING_FILE "\n" );
 		} else if ( haveBindingFile ) {
@@ -1640,9 +1683,51 @@ void idCommonLocal::InitGame( bool resetConfigs ) {
 	}
 	cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "exec autoexec.cfg\n" );
 	cmdSystem->ExecuteCommandBuffer();
+	// a profile without gamepad bindings gets the default layout; the settings count as
+	// changed (below), so the next save keeps it, and a player who unbinds the pad on
+	// purpose keeps any one binding to stop this
+#ifdef ID_DEDICATED
+	const bool addGamepadBinds = false;	// a server has no pads
+#else
+	const bool addGamepadBinds = !Com_HasGamepadBindings();
+#endif
+#ifndef ID_DEDICATED
+	// a profile without saved bindings: Destiny's keyboard layout over retail's defaults
+	if ( !savedBindings && !safeMode ) {
+		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, DESTINY_KEYBOARD_BINDS );
+		cmdSystem->ExecuteCommandBuffer();
+		Printf( "keyboard: no saved bindings; bound the Destiny style layout over the defaults\n" );
+	} else if ( savedBindings && !safeMode && com_destinyLayout.GetInteger() < DESTINY_LAYOUT_VERSION ) {
+		// a profile saved with an older Destiny layout gets the keys and pad buttons that
+		// changed since (once: com_destinyLayout remembers the version)
+		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, DESTINY_KEYBOARD_BINDS );
+		if ( !addGamepadBinds ) {
+			cmdSystem->BufferCommandText( CMD_EXEC_APPEND, GAMEPAD_DEFAULT_BINDS );
+		}
+		cmdSystem->ExecuteCommandBuffer();
+		Printf( "keyboard and gamepad: updated the Destiny style layout to version %d\n", DESTINY_LAYOUT_VERSION );
+	}
+	if ( !safeMode ) {
+		com_destinyLayout.SetInteger( DESTINY_LAYOUT_VERSION );
+	}
+#endif
+	if ( addGamepadBinds ) {
+		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, GAMEPAD_DEFAULT_BINDS );
+		cmdSystem->ExecuteCommandBuffer();
+		Printf( "gamepad: no pad bindings in this profile; bound the default layout\n" );
+	}
 	StartupVariable( NULL );
+#ifndef ID_DEDICATED
+	// a fresh profile on a Steam Deck starts at the panel's size, in fullscreen, at 60 fps,
+	// without ray tracing (SteamDeck.h); before the window opens, so no restart is needed
+	if ( freshProfile && Sys_IsSteamDeck() ) {
+		cmdSystem->BufferCommandText( CMD_EXEC_APPEND, STEAMDECK_DISPLAY_DEFAULTS );
+		cmdSystem->ExecuteCommandBuffer();
+		Printf( "Steam Deck: first run, 1280x800 fullscreen, 60 fps, ray tracing off\n" );
+	}
+#endif
 	cvarSystem->ClearModifiedFlags( CVAR_ARCHIVE );
-	if ( emptyBindingFile ) {
+	if ( emptyBindingFile || addGamepadBinds ) {
 		cvarSystem->SetModifiedFlags( CVAR_ARCHIVE );	// rewrite it with the defaults (#454)
 	}
 
@@ -1712,6 +1797,11 @@ void idCommonLocal::InitGame( bool resetConfigs ) {
 	}
 	PrintLoadingMessage( "INITIALIZING INPUT..." );
 	Sys_InitInput();
+#ifndef ID_DEDICATED
+	// gamepads (sys_input.cpp, sdl_gamepad.cpp); nothing started the controller manager before
+	void Sys_InitControllers( void );
+	Sys_InitControllers();
+#endif
 	PrintLoadingMessage( "INITIALIZING NETWORK..." );
 	idAsyncNetwork::Init();
 	PrintLoadingMessage( "INITIALIZING SESSION..." );
@@ -1779,12 +1869,19 @@ int idCommonLocal::DetectMachineSpec( idStr& commands ) {
 		}
 	}
 	int level = 2;
+	const bool steamDeck = Sys_IsSteamDeck( vendorID, deviceID );
 	if ( listed ) {
 		const int listedLevel = Sys_DeviceSpecLevel( commands );
 		if ( listedLevel >= 0 ) {
 			level = listedLevel;
 		}
 		Printf( "machine spec: GPU %04x:%04x is in device.info; running its entry\n", vendorID, deviceID );
+	} else if ( steamDeck ) {
+		// the normal preset, then the Deck's own settings again over anything it set
+		level = STEAMDECK_MACHINE_SPEC;
+		commands = va( "exec %s\n", Sys_MachineSpecPreset( level ) );
+		commands += STEAMDECK_DISPLAY_DEFAULTS;
+		Printf( "machine spec: Steam Deck; the normal preset\n" );
 	} else {
 		commands = va( "exec %s\n", Sys_MachineSpecPreset( level ) );
 		if ( knownGpu ) {
@@ -1930,6 +2027,10 @@ void idCommonLocal::Shutdown() {
 		networkService->Shutdown();
 	}
 	idAsyncNetwork::Shutdown();
+#ifndef ID_DEDICATED
+	void Sys_ShutdownControllers( void );
+	Sys_ShutdownControllers();
+#endif
 	Sys_ShutdownInput();
 	if ( soundSystem != NULL ) {
 		sdScopedLock< true > soundLock( soundSystem->GetLock() );

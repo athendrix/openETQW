@@ -30,6 +30,7 @@ If you have questions concerning this license or the applicable additional terms
 #pragma hdrstop
 
 #include "GameModuleCallbacks.h"
+#include "CvarMacro.h"
 
 /*
 ===============================================================================
@@ -893,6 +894,15 @@ void idCmdSystemLocal::BufferCommandArgs( cmdExecution_t exec, const idCmdArgs &
 idCmdSystemLocal::ExecuteCommandBuffer
 ============
 */
+static bool CvarMacroLookup( const char* name, std::string& value ) {
+	idCVar* cvar = cvarSystem != NULL ? cvarSystem->Find( name ) : NULL;
+	if ( cvar == NULL ) {
+		return false;
+	}
+	value = cvar->GetString();
+	return true;
+}
+
 void idCmdSystemLocal::ExecuteCommandBuffer( bool allowWait ) {
 	int			i;
 	char *		text;
@@ -936,7 +946,9 @@ void idCmdSystemLocal::ExecuteCommandBuffer( bool allowWait ) {
 				tokenizedCmds.RemoveIndex( 0 );
 			}
 		} else {
-			args.TokenizeString( text, false );
+			// "$name": a cvar's text (CvarMacro.h; retail map rotations use it)
+			const std::string expanded = CVM_Expand( text, CvarMacroLookup );
+			args.TokenizeString( expanded.c_str(), false );
 		}
 
 		// delete the text from the command buffer and move remaining commands down

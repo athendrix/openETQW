@@ -280,6 +280,7 @@ private:
 	void				ProcessConnectMessage( const netadr_t from, const idBitMsg &msg );
 	void				ProcessRemoteConsoleMessage( const netadr_t from, const idBitMsg &msg );
 	void				ProcessGetInfoMessage( const netadr_t from, const idBitMsg &msg );
+	void				ProcessGetInfoChallengeMessage( const netadr_t from, const idBitMsg &msg );
 	bool				ConnectionlessMessage( const netadr_t from, const idBitMsg &msg );
 	bool				ProcessMessage( const netadr_t from, idBitMsg &msg );
 	void				ProcessAuthMessage( const idBitMsg &msg );

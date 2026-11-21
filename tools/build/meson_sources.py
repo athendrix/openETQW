@@ -40,6 +40,9 @@ COMMON_FRAMEWORK_SOURCES = (
     "src/framework/file_inzip.cpp",
     "src/framework/minizip/ioapi.c",
     "src/framework/minizip/unzip.c",
+    # Ed25519 for server identity (src/libs/tweetnacl/README.md)
+    "src/libs/tweetnacl/tweetnacl.c",
+    "src/framework/async/ServerIdentity.cpp",
     "src/libs/filelib/File.cpp",
     "src/sys/sys_input.cpp",
     "src/renderer/Image_files.cpp",
@@ -107,6 +110,10 @@ NAVIGATION_RECAST_SOURCES = (
 
 SDNET_SOURCES = (
     "src/sdnet/SDNet.cpp",
+    "src/sdnet/SDNetBrowser.cpp",
+    # server discovery through the BitTorrent DHT: jech/dht (src/libs/dht/README.md)
+    "src/sdnet/Dht.cpp",
+    "src/sdnet/DhtLibrary.c",
 )
 
 BSE_PARTICLE_SOURCES = (
@@ -136,6 +143,7 @@ CLIENT_SOUND_SOURCES = (
     "src/sound/snd_wavefile.cpp",
     "src/sound/snd_world.cpp",
     "src/sound/SoundBink.cpp",
+    "src/sound/SoundTheora.cpp",
     "src/sound/snd_openal_none.cpp",
 )
 
@@ -155,6 +163,7 @@ CLIENT_RENDERER_SOURCES = (
     "src/renderer/RenderSystemBackend.cpp",
     "src/renderer/RenderSystem_init.cpp",
     "src/renderer/RenderWorld.cpp",
+    "src/renderer/RenderDecals.cpp",
     "src/renderer/RenderWorld_demo.cpp",
     "src/renderer/RenderWorld_load.cpp",
     "src/renderer/RenderWorld_portals.cpp",
@@ -249,6 +258,7 @@ PLATFORM_WIN32_SOURCES = (
 SDL3_PLATFORM_SOURCES = (
     "src/sys/sdl/sdl_glimp.cpp",
     "src/sys/sdl/sdl_events.cpp",
+    "src/sys/sdl/sdl_gamepad.cpp",
     "src/sys/sdl/sdl_sound.cpp",
 )
 

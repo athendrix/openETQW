@@ -69,6 +69,18 @@ RULES = [
     ("openETQW-game", "legal/", ("SDK", "LicenseRef-ETQW-SDK")),
     ("openETQW-game", "", ("Reconstruction_original", "MIT")),
     ("openETQW", "LICENSES/third-party/minizip.txt", ("ThirdParty", "Zlib")),
+    # TweetNaCl 20140427, two shifts written as multiplications (src/libs/tweetnacl/README.md): public domain
+    ("openETQW", "src/libs/tweetnacl/tweetnacl.c", ("ThirdParty", "LicenseRef-PublicDomain")),
+    ("openETQW", "src/libs/tweetnacl/tweetnacl.h", ("ThirdParty", "LicenseRef-PublicDomain")),
+    ("openETQW", "LICENSES/third-party/tweetnacl.txt", ("ThirdParty", "LicenseRef-PublicDomain")),
+    # jech/dht, unchanged (src/libs/dht/README.md): MIT
+    ("openETQW", "src/libs/dht/dht.c", ("ThirdParty", "MIT")),
+    ("openETQW", "src/libs/dht/dht.h", ("ThirdParty", "MIT")),
+    ("openETQW", "LICENSES/third-party/jech-dht.txt", ("ThirdParty", "MIT")),
+    # libtheora 1.2.0's decoder, unchanged (src/libs/theora/README.md): BSD-3-Clause
+    ("openETQW", "src/libs/theora/lib/", ("ThirdParty", "BSD-3-Clause")),
+    ("openETQW", "src/libs/theora/include/", ("ThirdParty", "BSD-3-Clause")),
+    ("openETQW", "LICENSES/third-party/libtheora.txt", ("ThirdParty", "BSD-3-Clause")),
     # upstream Mesa commits backported unmodified to the bundled KosmicKrisp (#448); one rule per
     # file, so a project file added under tools/build/macos keeps its own licence
     ("openETQW", "tools/build/macos/mesa-kk-wait-for-drawable.patch", ("ThirdParty", "MIT")),

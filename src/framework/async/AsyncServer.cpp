@@ -12,7 +12,21 @@
 #include "../Session_local.h"
 #include "sdnet/SDNet.h"
 #include "AllowFailureReason.h"
+#include "ServerQuery.h"
+#include "ServerIdentity.h"
+#include "../../sys/LocalSubnets.h"
+#include "../../sys/NetAddress.h"
+#include "../../sdnet/Dht.h"
+void SDNet_BrowserAnnounce( int gamePort );	// src/sdnet/SDNetBrowser.h
+
+extern idCVar net_ipv6;
+extern idCVar net_serverAnswerQueries;
+idCVar net_serverAnnounce( "net_serverAnnounce", "0", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_BOOL | CVAR_NOCHEAT, "announce this server in the BitTorrent DHT, so players' server browsers find it (Internet tab); set net_serverPublicAddress too" );
+
+// a connect challenge is good this long after it was handed out
+static const int CHALLENGE_LIFETIME_MSEC = 10000;
 #include <cstdint>
+#include "SecureRandom.h"
 
 static const int SERVER_EMPTY_RESEND_MSEC = 500;
 // a dropped client's disconnect message is resent this long (4 resends): a resend still in
@@ -131,6 +145,10 @@ bool idAsyncServer::InitPort() {
 }
 
 void idAsyncServer::ClosePort() {
+	DHT_Stop( &serverPort );
+	if ( !idAsyncNetwork::serverDedicated.GetBool() ) {
+		SDNet_BrowserAnnounce( 0 );
+	}
 	serverPort.Close();
 	for ( int i = 0; i < MAX_CHALLENGES; ++i ) {
 		challenges[ i ].authReplyPrint.Clear();
@@ -645,7 +663,10 @@ void idAsyncServer::ProcessConnectionLessMessages() {
 		idBitMsg msg;
 		msg.InitWrite( buffer, sizeof( buffer ) );
 		msg.SetSize( size );
-		ProcessMessage( from, msg );
+		// the DHT's packets are those no client or query claimed (Dht.h)
+		if ( !ProcessMessage( from, msg ) && DHT_RunningOn( &serverPort ) && DHT_IsPacket( buffer, size ) ) {
+			DHT_Input( from, buffer, size );
+		}
 	}
 }
 
@@ -697,11 +718,27 @@ void idAsyncServer::LocalClientSendReliableMessage( const idBitMsg& msg ) {
 	}
 }
 
+/*
+The DHT stands in for the master server (src/sdnet/Dht.h): with net_serverAnnounce, a
+dedicated server runs a DHT node on its game port and announces that port; a listen
+server announces through the browser's node. Called every frame.
+*/
 void idAsyncServer::MasterHeartbeat( bool force ) {
-	if ( !force && realTime < nextHeartbeatTime ) {
+	( void )force;
+	const bool announce = active && net_serverAnnounce.GetBool() && net_serverAnswerQueries.GetBool() && !idAsyncNetwork::LANServer.GetBool();
+	if ( !idAsyncNetwork::serverDedicated.GetBool() ) {
+		SDNet_BrowserAnnounce( announce ? serverPort.GetPort() : 0 );
 		return;
 	}
-	nextHeartbeatTime = realTime + 5 * 60 * 1000;
+	if ( announce && !DHT_Running() ) {
+		DHT_Start( &serverPort );
+	} else if ( !announce && DHT_RunningOn( &serverPort ) ) {
+		DHT_Stop( &serverPort );
+	}
+	if ( DHT_RunningOn( &serverPort ) ) {
+		DHT_SetAnnouncePort( serverPort.GetPort() );
+		DHT_Frame();
+	}
 }
 
 void idAsyncServer::DropClient( int clientNum, const char* reason ) {
@@ -1527,12 +1564,22 @@ void idAsyncServer::ProcessChallengeMessage( const netadr_t from, const idBitMsg
 	}
 	int clientId = msg.ReadLong();
 
+	// one answer per address every 50 ms, 500 a second in all: a spoofed flood can't
+	// cycle the challenge table or the log
+	static sqRateLimiter limiter( 50, 500 );
+	unsigned int limiterKey = 0;
+	memcpy( &limiterKey, from.ip, sizeof( limiterKey ) );
+	if ( !limiter.Allow( limiterKey, Sys_Milliseconds() ) ) {
+		return;
+	}
+
 	int slot = -1;
 	int oldest = 0;
 	int oldestTime = realTime;
 
 	for ( int i = 0; i < MAX_CHALLENGES; ++i ) {
-		if ( challenges[ i ].time != 0 && realTime - challenges[ i ].time > 10000 ) {
+		if ( challenges[ i ].time != 0 && realTime - challenges[ i ].time > CHALLENGE_LIFETIME_MSEC ) {
+			memset( &challenges[ i ].address, 0, sizeof( challenges[ i ].address ) );
 			challenges[ i ].clientId = 0;
 			challenges[ i ].challenge = 0;
 			challenges[ i ].time = 0;
@@ -1559,7 +1606,7 @@ void idAsyncServer::ProcessChallengeMessage( const netadr_t from, const idBitMsg
 
 	int challengeVal = challenges[ slot ].challenge;
 	if ( challengeVal == 0 ) {
-		challengeVal = ( ( rand() << 16 ) ^ rand() ^ realTime ) & 0x7FFFFFFF;
+		challengeVal = static_cast< int >( Sys_SecureRandom32() & 0x7FFFFFFF );
 		if ( challengeVal == 0 ) {
 			challengeVal = 1;
 		}
@@ -1572,7 +1619,7 @@ void idAsyncServer::ProcessChallengeMessage( const netadr_t from, const idBitMsg
 	challenges[ slot ].pingTime = realTime;
 	challenges[ slot ].connected = false;
 
-	common->Printf( "Challenge generated for %s (id: %d, challenge: %d)\n", Sys_NetAdrToString( from ), clientId, challengeVal );
+	common->DPrintf( "Challenge generated for %s (id: %d)\n", Sys_NetAdrToString( from ), clientId );
 
 	byte buffer[ MAX_MESSAGE_SIZE ];
 	idBitMsg outMsg;
@@ -1739,7 +1786,320 @@ void idAsyncServer::ProcessRemoteConsoleMessage( const netadr_t from, const idBi
 	noRconOutput = false;
 }
 
+/*
+==================
+idAsyncServer query handshake
+
+The server browser's query (ServerQuery.h): a challenge request gets a small, stateless
+cookie; an info request that brings it back with the work done gets the server's
+settings (its serverinfo CVars, the keys the browser shows first) and its players.
+==================
+*/
+idCVar net_serverAnswerQueries( "net_serverAnswerQueries", "1", CVAR_SYSTEM | CVAR_BOOL | CVAR_NOCHEAT, "answer server browser queries (the menu's server list)" );
+idCVar net_serverQueryDifficulty( "net_serverQueryDifficulty", "16", CVAR_SYSTEM | CVAR_INTEGER | CVAR_NOCHEAT, "the server browser's proof of work, in leading zero bits of SHA-256 (each bit doubles a client's work); raised while flooded", SQ_MIN_DIFFICULTY, SQ_MAX_DIFFICULTY );
+
+idCVar net_serverPublicAddress( "net_serverPublicAddress", "", CVAR_SYSTEM | CVAR_ARCHIVE | CVAR_NOCHEAT, "the addresses players outside the LAN reach this server at (IPv4 or host name, with :port when not net_port), separated by spaces; the server browser lists them in the server's signed answer, so players who saved the server find it again at them" );
+
+namespace {
+
+const char SERVER_KEY_FILE[]			= "serverkey.dat";
+const int SERVER_ADDRESSES_REFRESH_MSEC	= 60 * 1000;
+
+/*
+The server's identity (ServerIdentity.h): a 32-byte seed in the save path, made the first
+time it is needed. Losing the file gives the server a new identity, so players' saved
+copies no longer follow it to a new address.
+*/
+const sqIdentity_t& ServerIdentity() {
+	static sqIdentity_t identity;
+	static bool loaded = false;
+	if ( loaded ) {
+		return identity;
+	}
+	loaded = true;
+	memset( &identity, 0, sizeof( identity ) );
+	uint8_t seed[ SQ_ID_SEED_SIZE ];
+	bool haveSeed = false;
+	idFile* file = fileSystem->OpenFileRead( SERVER_KEY_FILE );
+	if ( file != NULL ) {
+		haveSeed = file->Length() == SQ_ID_SEED_SIZE && file->Read( seed, SQ_ID_SEED_SIZE ) == SQ_ID_SEED_SIZE;
+		fileSystem->CloseFile( file );
+		if ( !haveSeed ) {
+			common->Warning( "%s is not a server key; making a new one", SERVER_KEY_FILE );
+		}
+	}
+	if ( !haveSeed ) {
+		for ( int i = 0; i < SQ_ID_SEED_SIZE; i += 4 ) {
+			const uint32_t value = Sys_SecureRandom32();
+			memcpy( seed + i, &value, 4 );
+		}
+		idFile* out = fileSystem->OpenFileWrite( SERVER_KEY_FILE );
+		if ( out == NULL || out->Write( seed, SQ_ID_SEED_SIZE ) != SQ_ID_SEED_SIZE ) {
+			common->Warning( "couldn't save %s: this server's identity lasts until it stops", SERVER_KEY_FILE );
+		}
+		if ( out != NULL ) {
+			fileSystem->CloseFile( out );
+		}
+	}
+	SQ_IdentityFromSeed( seed, identity );
+	memset( seed, 0, sizeof( seed ) );
+	if ( identity.valid ) {
+		char id[ SQ_ID_PUBLIC_SIZE * 2 + 1 ];
+		SQ_HexEncode( identity.publicKey, SQ_ID_PUBLIC_SIZE, id );
+		common->Printf( "server identity %s\n", id );
+	}
+	return identity;
+}
+
+// appends "a.b.c.d:port" or "[v6]:port" to the list when it fits and is not there yet;
+// never a link-local address, which means nothing off its own link
+void AppendQueryAddress( idStr& list, const netadr_t& address ) {
+	if ( address.type != NA_IP && !( address.type == NA_IP6 && !NA_IsLinkLocalIPv6( address.ip6 ) ) ) {
+		return;
+	}
+	const idStr text = Sys_NetAdrToString( address );
+	idStr padded = va( " %s ", list.c_str() );
+	if ( padded.Find( va( " %s ", text.c_str() ) ) >= 0 ) {
+		return;
+	}
+	if ( list.Length() + 1 + text.Length() > SQ_ID_MAX_ADDRESSES_LENGTH ) {
+		return;
+	}
+	if ( list.Length() > 0 ) {
+		list += " ";
+	}
+	list += text;
+}
+
+/*
+The addresses the server's answer lists (si_addrs): net_serverPublicAddress, resolved
+here so a client never has to look up a name a server sent it, the server's global IPv6
+addresses (reachable as they are, no NAT), then its LAN addresses (private IPv4, unique
+local IPv6). Rebuilt every minute (a name's address can change) and when the cvar does.
+*/
+const char* QueryAddresses( int serverPortNumber ) {
+	static idStr addresses;
+	static int built = 0;
+	static int builtPort = -1;
+	const int now = Sys_Milliseconds();
+	if ( builtPort == serverPortNumber && !net_serverPublicAddress.IsModified() && now - built < SERVER_ADDRESSES_REFRESH_MSEC ) {
+		return addresses.c_str();
+	}
+	net_serverPublicAddress.ClearModified();
+	built = now;
+	builtPort = serverPortNumber;
+	addresses.Clear();
+
+	idStrList entries;
+	idStr entry;
+	for ( const char* c = net_serverPublicAddress.GetString(); ; c++ ) {
+		if ( *c == '\0' || *c == ' ' || *c == '\t' || *c == ',' ) {
+			if ( entry.Length() > 0 ) {
+				entries.Append( entry );
+				entry.Clear();
+			}
+			if ( *c == '\0' ) {
+				break;
+			}
+		} else {
+			entry += *c;
+		}
+	}
+	for ( int i = 0; i < entries.Num(); i++ ) {
+		netadr_t address;
+		if ( !Sys_StringToNetAdr( entries[ i ].c_str(), &address, true ) || !NetAdr_IsIP( address ) ) {
+			common->Warning( "net_serverPublicAddress: can't resolve '%s'", entries[ i ].c_str() );
+			continue;
+		}
+		if ( address.port == 0 ) {
+			address.port = static_cast< unsigned short >( serverPortNumber );
+		}
+		AppendQueryAddress( addresses, address );
+	}
+	localAddress6_t local6[ 16 ];
+	const int numLocal6 = net_ipv6.GetBool() ? Sys_GetLocalIPv6( local6, 16 ) : 0;
+	for ( int pass = 0; pass < 2; pass++ ) {
+		if ( pass == 1 ) {
+			// the private IPv4 addresses between the global and the unique local IPv6 ones
+			lanSubnet_t subnets[ 16 ];
+			const int numSubnets = Sys_GetLocalSubnets( subnets, 16 );
+			for ( int i = 0; i < numSubnets; i++ ) {
+				if ( !LAN_IsPrivate( subnets[ i ].address ) ) {
+					continue;
+				}
+				netadr_t address;
+				memset( &address, 0, sizeof( address ) );
+				address.type = NA_IP;
+				address.ip[ 0 ] = static_cast< byte >( subnets[ i ].address >> 24 );
+				address.ip[ 1 ] = static_cast< byte >( subnets[ i ].address >> 16 );
+				address.ip[ 2 ] = static_cast< byte >( subnets[ i ].address >> 8 );
+				address.ip[ 3 ] = static_cast< byte >( subnets[ i ].address );
+				address.port = static_cast< unsigned short >( serverPortNumber );
+				AppendQueryAddress( addresses, address );
+			}
+		}
+		for ( int i = 0; i < numLocal6; i++ ) {
+			const bool global = NA_IsGlobalIPv6( local6[ i ].address );
+			if ( ( pass == 0 ) != global || ( !global && !NA_IsLANIPv6( local6[ i ].address ) ) ) {
+				continue;
+			}
+			netadr_t address;
+			memset( &address, 0, sizeof( address ) );
+			address.type = NA_IP6;
+			memcpy( address.ip6, local6[ i ].address, 16 );
+			address.port = static_cast< unsigned short >( serverPortNumber );
+			AppendQueryAddress( addresses, address );
+		}
+	}
+	return addresses.c_str();
+}
+
+sqQueryGate* QueryGate() {
+	static sqQueryGate* gate = NULL;
+	if ( gate == NULL ) {
+		uint8_t secret[ sqQueryGate::SECRET_SIZE ];
+		for ( int i = 0; i < sqQueryGate::SECRET_SIZE; i++ ) {
+			secret[ i ] = static_cast< uint8_t >( Sys_SecureRandom32() & 0xff );
+		}
+		gate = new sqQueryGate( secret );
+		memset( secret, 0, sizeof( secret ) );
+	}
+	gate->SetBaseDifficulty( net_serverQueryDifficulty.GetInteger() );
+	return gate;
+}
+
+// the cookie's address; false for an address type the query does not serve
+bool QueryAddress( const netadr_t& from, uint8_t address[ SQ_ADDRESS_SIZE ] ) {
+	if ( from.type == NA_IP ) {
+		SQ_MakeAddressV4( from.ip, from.port, address );
+		return true;
+	}
+	if ( from.type == NA_IP6 ) {
+		SQ_MakeAddressV6( from.ip6, from.port, address );
+		return true;
+	}
+	if ( from.type == NA_LOOPBACK ) {
+		static const unsigned char loopback[ 4 ] = { 127, 0, 0, 1 };
+		SQ_MakeAddressV4( loopback, from.port, address );
+		return true;
+	}
+	return false;
+}
+
+unsigned int QueryLimiterKey( const uint8_t address[ SQ_ADDRESS_SIZE ] ) {
+	// the address without the port; IPv6 hashed to the limiter's 32 bits
+	uint32_t key = 2166136261u;
+	for ( int i = 0; i < 16; i++ ) {
+		key = ( key ^ address[ i ] ) * 16777619u;
+	}
+	return key;
+}
+
+} // namespace
+
+void idAsyncServer::ProcessGetInfoChallengeMessage( const netadr_t from, const idBitMsg& msg ) {
+	// the answer is smaller than the question, so this only costs the server an HMAC
+	static sqRateLimiter limiter( 20, 1000 );
+	uint8_t address[ SQ_ADDRESS_SIZE ];
+	if ( !active || !net_serverAnswerQueries.GetBool() || !QueryAddress( from, address ) ) {
+		return;
+	}
+	int protocol = 0;
+	int nonce = 0;
+	if ( !SQ_ReadChallengeRequest( msg, protocol, nonce ) || protocol != ASYNC_PROTOCOL_VERSION ) {
+		return;
+	}
+	const int now = Sys_Milliseconds();
+	if ( !limiter.Allow( QueryLimiterKey( address ), now ) ) {
+		return;
+	}
+	sqChallenge_t challenge;
+	QueryGate()->Issue( address, protocol, nonce, now, challenge );
+	byte buffer[ 128 ];
+	idBitMsg out;
+	out.InitWrite( buffer, sizeof( buffer ) );
+	out.BeginWriting();
+	SQ_WriteChallenge( out, challenge );
+	serverPort.SendPacket( from, out.GetData(), out.GetSize() );
+}
+
 void idAsyncServer::ProcessGetInfoMessage( const netadr_t from, const idBitMsg& msg ) {
+	static sqRateLimiter limiter( 100, 100 );
+	uint8_t address[ SQ_ADDRESS_SIZE ];
+	if ( !active || !net_serverAnswerQueries.GetBool() || !QueryAddress( from, address ) ) {
+		return;
+	}
+	sqChallenge_t challenge;
+	uint64_t work = 0;
+	bool wantProof = false;
+	if ( !SQ_ReadInfoRequest( msg, challenge, work, &wantProof ) || challenge.protocol != ASYNC_PROTOCOL_VERSION ) {
+		return;
+	}
+	const int now = Sys_Milliseconds();
+	if ( !QueryGate()->Check( address, challenge, work, now ) || !limiter.Allow( QueryLimiterKey( address ), now ) ) {
+		return;
+	}
+
+	sqInfo_t* info = new sqInfo_t;
+	info->Clear();
+	info->protocol = ASYNC_PROTOCOL_VERSION;
+	info->nonce = challenge.nonce;
+
+	// who the server is and where it can be reached, first so they always fit; signed
+	// only when asked, and only so often (ServerIdentity.h)
+	const sqIdentity_t& identity = ServerIdentity();
+	if ( identity.valid ) {
+		static sqRateLimiter signLimiter( 0, SQ_IDENTITY_SIGNS_PER_SECOND );
+		char id[ SQ_ID_PUBLIC_SIZE * 2 + 1 ];
+		SQ_HexEncode( identity.publicKey, SQ_ID_PUBLIC_SIZE, id );
+		const char* addresses = QueryAddresses( serverPort.GetPort() );
+		info->AddKey( SQ_KEY_ID, id );
+		info->AddKey( SQ_KEY_ADDRESSES, addresses );
+		char signature[ SQ_ID_SIGNATURE_SIZE * 2 + 1 ];
+		if ( wantProof && signLimiter.Allow( QueryLimiterKey( address ), now ) && SQ_SignAnswer( identity, challenge.nonce, challenge.cookie, addresses, signature ) ) {
+			info->AddKey( SQ_KEY_SIGNATURE, signature );
+		}
+	}
+
+	// the keys the browser shows first, then the rest of the serverinfo
+	const idDict& serverInfo = sessLocal.mapSpawnData.serverInfo;
+	static const char* const firstKeys[] = {
+		"si_name", "si_map", "si_rules", "si_maxPlayers", "si_needPass", "si_pure",
+		"si_teamDamage", "si_teamForceBalance", "si_allowLateJoin", "fs_game"
+	};
+	for ( int i = 0; i < static_cast< int >( sizeof( firstKeys ) / sizeof( firstKeys[ 0 ] ) ); i++ ) {
+		const idKeyValue* kv = serverInfo.FindKey( firstKeys[ i ] );
+		if ( kv != NULL ) {
+			info->AddKey( kv->GetKey().c_str(), kv->GetValue().c_str() );
+		}
+	}
+	for ( int i = 0; i < serverInfo.GetNumKeyVals(); i++ ) {
+		const idKeyValue* kv = serverInfo.GetKeyVal( i );
+		if ( info->FindValue( kv->GetKey().c_str() ) == NULL ) {
+			info->AddKey( kv->GetKey().c_str(), kv->GetValue().c_str() );
+		}
+	}
+
+	for ( int i = 0; i < MAX_ASYNC_CLIENTS; i++ ) {
+		const serverClient_t& client = clients[ i ];
+		if ( client.clientState < SCS_CONNECTED ) {
+			continue;
+		}
+		info->AddPlayer( sessLocal.mapSpawnData.userInfo[ i ].GetString( "ui_name" ), client.isBot ? 0 : client.clientPing, client.isBot );
+	}
+	if ( game != NULL ) {
+		info->gameState = game->GetProbeState();
+		info->timeLeft = game->GetProbeTime();
+	}
+
+	// one unfragmented packet
+	byte buffer[ 1400 ];
+	idBitMsg out;
+	out.InitWrite( buffer, sizeof( buffer ) );
+	out.BeginWriting();
+	SQ_WriteResponse( out, *info );
+	delete info;
+	serverPort.SendPacket( from, out.GetData(), out.GetSize() );
 }
 
 bool idAsyncServer::ConnectionlessMessage( const netadr_t from, const idBitMsg& msg ) {
@@ -1753,7 +2113,11 @@ bool idAsyncServer::ConnectionlessMessage( const netadr_t from, const idBitMsg& 
 		ProcessConnectMessage( from, msg );
 		return true;
 	}
-	if ( idStr::Icmp( command, "getInfo" ) == 0 ) {
+	if ( idStr::Icmp( command, SQ_CHALLENGE_REQUEST ) == 0 ) {
+		ProcessGetInfoChallengeMessage( from, msg );
+		return true;
+	}
+	if ( idStr::Icmp( command, SQ_REQUEST ) == 0 ) {
 		ProcessGetInfoMessage( from, msg );
 		return true;
 	}
@@ -1814,7 +2178,13 @@ void idAsyncServer::ProcessPureMessage( const netadr_t from, const idBitMsg& msg
 }
 
 int idAsyncServer::ValidateChallenge( const netadr_t from, int challenge, int clientId ) {
+	if ( challenge == 0 ) {
+		return -1;	// a free or expired slot's value
+	}
 	for ( int i = 0; i < MAX_CHALLENGES; ++i ) {
+		if ( challenges[ i ].time == 0 || realTime - challenges[ i ].time > CHALLENGE_LIFETIME_MSEC ) {
+			continue;
+		}
 		if ( challenges[ i ].challenge == challenge && challenges[ i ].clientId == clientId &&
 			Sys_CompareNetAdrBase( challenges[ i ].address, from ) ) {
 			return i;

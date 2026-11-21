@@ -13,6 +13,7 @@
 #include "AsyncNetwork.h"
 #include <chrono>
 #include "../Session_local.h"
+void SDNet_BrowserServerJoined( const netadr_t& address );	// src/sdnet/SDNetBrowser.cpp
 
 static const int CLIENT_CONNECT_RESEND_MSEC = 1000;
 static const int CLIENT_EMPTY_RESEND_MSEC = 500;
@@ -25,7 +26,7 @@ static bool IsServerAddress( const netadr_t from, const netadr_t server ) {
 	if ( !Sys_CompareNetAdrBase( from, server ) ) {
 		return false;
 	}
-	return from.type != NA_IP || server.type != NA_IP || from.port == server.port;
+	return !NetAdr_IsIP( from ) || !NetAdr_IsIP( server ) || from.port == server.port;
 }
 
 static idCVar net_clientShowSnapshots( "net_clientShowSnapshots", "0", CVAR_SYSTEM | CVAR_BOOL | CVAR_NOCHEAT, "print a line for every snapshot the client reads (network tests)" );
@@ -229,7 +230,8 @@ void idAsyncClient::GetServerInfo( const netadr_t adr ) {
 	if ( !InitPort() ) {
 		return;
 	}
-	serverAddress = adr;
+	// the serverInfo command uses the server browser now; this must not touch the
+	// address of the server we are connected to
 	common->DPrintf( "requesting server info from %s\n", Sys_NetAdrToString( adr ) );
 }
 
@@ -638,10 +640,11 @@ void idAsyncClient::ProcessUnreliableServerMessage( const idBitMsg& msg ) {
 		int numDuplicatedUsercmds = msg.ReadByte();
 		int aheadOfServer = msg.ReadShort();
 
+		// each part's size, then all of it: a snapshot that does not hold what it says is dropped
 		int ucmdBytes = msg.ReadShort();
 		byte ucmdBuffer[ MAX_MESSAGE_SIZE ];
-		if ( ucmdBytes > 0 && ucmdBytes <= (int)sizeof( ucmdBuffer ) ) {
-			msg.ReadData( ucmdBuffer, ucmdBytes );
+		if ( ucmdBytes < 0 || ucmdBytes > (int)sizeof( ucmdBuffer ) || msg.ReadData( ucmdBuffer, ucmdBytes ) != ucmdBytes ) {
+			return;
 		}
 		idBitMsg ucmdMsg;
 		ucmdMsg.InitRead( ucmdBuffer, ucmdBytes );
@@ -649,8 +652,8 @@ void idAsyncClient::ProcessUnreliableServerMessage( const idBitMsg& msg ) {
 
 		int gameBytes = msg.ReadShort();
 		byte gameBuffer[ MAX_MESSAGE_SIZE ];
-		if ( gameBytes > 0 && gameBytes <= (int)sizeof( gameBuffer ) ) {
-			msg.ReadData( gameBuffer, gameBytes );
+		if ( gameBytes < 0 || gameBytes > (int)sizeof( gameBuffer ) || msg.ReadData( gameBuffer, gameBytes ) != gameBytes ) {
+			return;
 		}
 		idBitMsg gameMsg;
 		gameMsg.InitRead( gameBuffer, gameBytes );
@@ -794,12 +797,18 @@ void idAsyncClient::ProcessConnectResponseMessage( const netadr_t from, const id
 	if ( !Sys_CompareNetAdrBase( from, serverAddress ) || clientState != CS_CONNECTING ) {
 		return;	// a repeated response must not reset the channel (Doom 3)
 	}
-	serverId = msg.ReadLong();
-	clientNum = msg.ReadLong();
+	const int newServerId = msg.ReadLong();
+	const int newClientNum = msg.ReadLong();
+	if ( newClientNum < 0 || newClientNum >= MAX_ASYNC_CLIENTS ) {
+		return;	// not a slot of this protocol
+	}
+	serverId = newServerId;
+	clientNum = newClientNum;
 	channel.Init( from, clientId );
 	clientState = CS_CONNECTED;
 	lastPacketTime = realTime;
 	common->Printf( "Client connected to server (slot %d, serverId %d)\n", clientNum, serverId );
+	SDNet_BrowserServerJoined( from );	// the browser's History tab
 	// first estimate of how far ahead to run: the connect round trip (Doom 3)
 	clientPredictTime = clientPrediction = idMath::ClampInt( 0, idAsyncNetwork::clientMaxPrediction.GetInteger(), realTime - lastConnectTime );
 	SendUserInfoToServer();

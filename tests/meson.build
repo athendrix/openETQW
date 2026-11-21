@@ -48,6 +48,76 @@ bitmsg_test = executable(
 )
 test('bitmsg', bitmsg_test, suite: 'unit', timeout: 30)
 
+# 1b. the server browser's query (ServerQuery.h): round trip, one packet, hostile input,
+#     the server's rate limiter
+server_query_test = executable(
+  'openetqw-server-query-test',
+  files('ServerQueryTest.cpp', game_stage_root / 'src' / 'idlib' / 'BitMsg.cpp'),
+  include_directories: test_include_dirs,
+  cpp_args: ['-D__IDLIB__', '-DSD_SDK_BUILD', '-DSD_PUBLIC_BUILD'],
+  dependencies: test_deps,
+  link_args: test_link_args,
+  install: false,
+)
+test('server-query', server_query_test, suite: 'unit', timeout: 30)
+
+# the LAN search's subnet arithmetic and sweep order
+lan_discovery_test = executable(
+  'openetqw-lan-discovery-test',
+  files('LanDiscoveryTest.cpp'),
+  include_directories: test_include_dirs,
+  dependencies: test_deps,
+  link_args: test_link_args,
+  install: false,
+)
+test('lan-discovery', lan_discovery_test, suite: 'unit', timeout: 30)
+
+# server identity: Ed25519 (RFC 8032 vectors) and the signed info answer
+server_identity_test = executable(
+  'openetqw-server-identity-test',
+  files('ServerIdentityTest.cpp',
+    meson.project_source_root() / 'src' / 'framework' / 'async' / 'ServerIdentity.cpp',
+    meson.project_source_root() / 'src' / 'libs' / 'tweetnacl' / 'tweetnacl.c'),
+  include_directories: test_include_dirs,
+  dependencies: test_deps,
+  link_args: test_link_args,
+  install: false,
+)
+test('server-identity', server_identity_test, suite: 'unit', timeout: 30)
+
+# IPv6 address text, classification and the /64 key
+net_address_test = executable(
+  'openetqw-net-address-test',
+  files('NetAddressTest.cpp'),
+  include_directories: test_include_dirs,
+  dependencies: test_deps,
+  link_args: test_link_args,
+  install: false,
+)
+test('net-address', net_address_test, suite: 'unit', timeout: 30)
+
+# the browser's cache of servers found through the DHT
+server_cache_test = executable(
+  'openetqw-server-cache-test',
+  files('ServerCacheTest.cpp'),
+  include_directories: test_include_dirs,
+  dependencies: test_deps,
+  link_args: test_link_args,
+  install: false,
+)
+test('server-cache', server_cache_test, suite: 'unit', timeout: 30)
+
+# "$name" cvar expansion in commands (retail map rotations)
+cvar_macro_test = executable(
+  'openetqw-cvar-macro-test',
+  files('CvarMacroTest.cpp'),
+  include_directories: test_include_dirs,
+  dependencies: test_deps,
+  link_args: test_link_args,
+  install: false,
+)
+test('cvar-macro', cvar_macro_test, suite: 'unit', timeout: 30)
+
 # 2. UserCmd delta serialization & sequence test
 usercmd_test_src = files(
   'UserCmdDeltaTest.cpp',
@@ -123,6 +193,25 @@ mouse_delta_test = executable(
   install: false,
 )
 test('mouse-delta', mouse_delta_test, suite: 'unit', timeout: 30)
+
+# 5a0. the SDL3 gamepad backend's helpers: the retail XInput button numbering, one event
+#      per button, trigger hysteresis and the menu cursor's radial dead zone
+gamepad_mapping_test = executable(
+  'openetqw-gamepad-mapping-test',
+  files('GamepadMappingTest.cpp'),
+  include_directories: include_directories('../src/sys/sdl'),
+  install: false,
+)
+test('gamepad-mapping', gamepad_mapping_test, suite: 'unit', timeout: 30)
+
+# 5a0b. Steam Deck detection (SteamDeck.h): the override, Steam's SteamDeck=1, the GPU IDs
+steam_deck_test = executable(
+  'openetqw-steam-deck-test',
+  files('SteamDeckTest.cpp'),
+  include_directories: include_directories('../src/sys'),
+  install: false,
+)
+test('steam-deck', steam_deck_test, suite: 'unit', timeout: 30)
 
 # 5a1b. a binary MD5 model's deferred meshes drawn as their own surfaces (#461): each gets
 #       its own compact vertex list, so a vehicle part that breaks off hides only its mesh
@@ -207,6 +296,41 @@ msgchannel_test = executable(
   install: false,
 )
 test('msgchannel', msgchannel_test, suite: 'unit', timeout: 30)
+
+# 5b2. The platform port (posix_net.cpp) on loopback: IPv4, and IPv6 where the host has it;
+#      address text with IPv6
+if host_system != 'windows'
+  net_port_test = executable(
+    'openetqw-net-port-test',
+    files(
+      'NetPortTest.cpp',
+      meson.project_source_root() / 'src' / 'sys' / 'posix' / 'posix_net.cpp',
+    ),
+    include_directories: engine_include_dirs,
+    cpp_args: common_engine_defs + ['-DID_DEDICATED'] + engine_pch_args,
+    dependencies: test_deps + [threads_dep],
+    link_args: test_link_args,
+    install: false,
+  )
+  test('net-port', net_port_test, suite: 'unit', timeout: 30)
+
+  # two DHT nodes on this host (src/sdnet/Dht.cpp): one announces, the other finds it
+  dht_loopback_test = executable(
+    'openetqw-dht-loopback-test',
+    files(
+      'DhtLoopbackTest.cpp',
+      meson.project_source_root() / 'src' / 'sdnet' / 'Dht.cpp',
+      meson.project_source_root() / 'src' / 'sdnet' / 'DhtLibrary.c',
+      meson.project_source_root() / 'src' / 'sys' / 'posix' / 'posix_net.cpp',
+    ),
+    include_directories: engine_include_dirs,
+    cpp_args: common_engine_defs + ['-DID_DEDICATED'] + engine_pch_args,
+    dependencies: test_deps + [threads_dep],
+    link_args: test_link_args,
+    install: false,
+  )
+  test('dht-loopback', dht_loopback_test, suite: 'unit', timeout: 60)
+endif
 
 # 5c. Retail data discovery (ledger 068): the base/pak000.pk4 marker in any case,
 #     path lists, the stored path, Steam's libraryfolders.vdf and steamapps/common,

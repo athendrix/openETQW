@@ -120,6 +120,47 @@ void idRenderSystemLocal::DrawBigStringExt( int x, int y, const char *string, co
 void idRenderSystemLocal::WriteDemoPics() {}
 void idRenderSystemLocal::DrawDemoPics() {}
 
+/*
+R_MatchAspectRatioToWindow
+
+With r_aspectRatioAuto (on by default), r_aspectRatio follows the window: retail made
+the player pick it, and a wrong pick stretched the 3D view and the GUI. The game reads
+r_aspectRatio for the view's field of view and the full-screen GUI's width (0 4:3,
+1 16:9, 2 16:10, 3 5:4, -1 r_customAspectRatioH:V).
+*/
+static idCVar r_aspectRatioAuto( "r_aspectRatioAuto", "1", CVAR_RENDERER | CVAR_ARCHIVE | CVAR_BOOL, "set r_aspectRatio from the window's shape (0: use r_aspectRatio as set)" );
+
+static void R_MatchAspectRatioToWindow( int width, int height ) {
+	static int matchedWidth = 0;
+	static int matchedHeight = 0;
+	if ( !r_aspectRatioAuto.GetBool() || width <= 0 || height <= 0 || cvarSystem == NULL ) {
+		return;
+	}
+	if ( width == matchedWidth && height == matchedHeight && !r_aspectRatioAuto.IsModified() ) {
+		return;
+	}
+	r_aspectRatioAuto.ClearModified();
+	matchedWidth = width;
+	matchedHeight = height;
+	const float aspect = width / static_cast< float >( height );
+	struct { int value; float aspect; } known[] = {
+		{ 0, 4.0f / 3.0f }, { 1, 16.0f / 9.0f }, { 2, 16.0f / 10.0f }, { 3, 5.0f / 4.0f }
+	};
+	int choice = -1;
+	for ( int i = 0; i < 4; i++ ) {
+		if ( idMath::Fabs( aspect - known[ i ].aspect ) < 0.01f * known[ i ].aspect ) {
+			choice = known[ i ].value;
+		}
+	}
+	if ( choice == -1 ) {
+		cvarSystem->SetCVarFloat( "r_customAspectRatioH", static_cast< float >( width ) );
+		cvarSystem->SetCVarFloat( "r_customAspectRatioV", static_cast< float >( height ) );
+	}
+	if ( cvarSystem->GetCVarInteger( "r_aspectRatio" ) != choice ) {
+		cvarSystem->SetCVarInteger( "r_aspectRatio", choice );
+	}
+}
+
 void idRenderSystemLocal::BeginFrame( int width, int height ) {
 	R_RenderMetricsBeginFrame();
 	if ( vulkanBackend.IsInitialized() && sys3D != NULL ) {
@@ -133,6 +174,7 @@ void idRenderSystemLocal::BeginFrame( int width, int height ) {
 	if ( height > 0 ) {
 		windowHeight = height;
 	}
+	R_MatchAspectRatioToWindow( windowWidth, windowHeight );
 	{
 		RENDER_METRIC_SCOPE( "Frame setup" );
 		renderSystemBackend.BeginFrame( windowWidth, windowHeight );

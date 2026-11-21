@@ -5,7 +5,71 @@
 #include <SDL3/SDL.h>
 #include "sound/AudioHardware.h"
 
+extern idCVar s_primaryDevice;	// snd_system.cpp: the options menu's playback device (its hash), empty for the default
+
+/*
+The playback devices SDL sees, by name, for the options menu's list (idSoundSystemLocal::
+ListSoundPlaybackDevices). Needs SDL's audio subsystem, which the sound hardware starts.
+*/
+void Sys_ListAudioPlaybackDevices( idWStrList& names ) {
+	names.Clear();
+	if ( SDL_WasInit( SDL_INIT_AUDIO ) == 0 ) {
+		return;
+	}
+	int count = 0;
+	SDL_AudioDeviceID* devices = SDL_GetAudioPlaybackDevices( &count );
+	if ( devices == NULL ) {
+		return;
+	}
+	for ( int i = 0; i < count; i++ ) {
+		const char* name = SDL_GetAudioDeviceName( devices[ i ] );
+		if ( name != NULL && name[ 0 ] != '\0' ) {
+			idWStr wide;
+			wide = va( L"%hs", name );
+			names.Append( wide );
+		}
+	}
+	SDL_free( devices );
+}
+
 namespace {
+
+/*
+The device s_primaryDevice names: the menu stores a device's hash (as
+idSoundSystem::GetAudioDeviceHash makes it from the name), a config may hold the name
+itself. Not found, or empty: the system's default device.
+*/
+SDL_AudioDeviceID ChosenPlaybackDevice() {
+	const char* wanted = s_primaryDevice.GetString();
+	if ( wanted == NULL || wanted[ 0 ] == '\0' || soundSystem == NULL ) {
+		return SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK;
+	}
+	const bool isHash = idStr::IsNumeric( wanted );
+	const int wantedHash = isHash ? atoi( wanted ) : 0;
+	int count = 0;
+	SDL_AudioDeviceID* devices = SDL_GetAudioPlaybackDevices( &count );
+	SDL_AudioDeviceID chosen = SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK;
+	for ( int i = 0; devices != NULL && i < count; i++ ) {
+		const char* name = SDL_GetAudioDeviceName( devices[ i ] );
+		if ( name == NULL ) {
+			continue;
+		}
+		idWStr wide;
+		wide = va( L"%hs", name );
+		if ( ( isHash && soundSystem->GetAudioDeviceHash( wide.c_str() ) == wantedHash ) || ( !isHash && idStr::Icmp( name, wanted ) == 0 ) ) {
+			chosen = devices[ i ];
+			common->Printf( "SDL3: playback device '%s'\n", name );
+			break;
+		}
+	}
+	if ( devices != NULL ) {
+		SDL_free( devices );
+	}
+	if ( chosen == SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK ) {
+		common->Printf( "SDL3: playback device '%s' not found; using the default\n", wanted );
+	}
+	return chosen;
+}
 
 class idAudioHardwareSDL3 : public idAudioHardware {
 public:
@@ -44,11 +108,15 @@ public:
 		spec.freq = sampleRate;
 
 		audioStream = SDL_OpenAudioDeviceStream(
-			SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,
+			ChosenPlaybackDevice(),
 			&spec,
 			NULL,
 			NULL
 		);
+		if ( audioStream == NULL && s_primaryDevice.GetString()[ 0 ] != '\0' ) {
+			common->Warning( "SDL3: couldn't open the chosen playback device (%s); trying the default", SDL_GetError() );
+			audioStream = SDL_OpenAudioDeviceStream( SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL );
+		}
 		if ( audioStream == NULL ) {
 			common->Warning( "SDL3: failed to open audio stream: %s", SDL_GetError() );
 			return false;

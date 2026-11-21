@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// openETQW dedicated server settings (GETTING-STARTED.md section 4)
+
+set si_name "My openETQW Server"
+set si_maxPlayers 24
+set si_rules sdGameRulesCampaign      // or sdGameRulesObjective, sdGameRulesStopWatch
+set si_pure 0
+set si_teamDamage 1
+
+// a private server: players need this password
+// set si_needPass 1
+// set g_password "changeme"
+
+// list the server in players' Internet tab (BitTorrent DHT), and say where it is
+// set net_serverAnnounce 1
+// set net_serverPublicAddress "your.public.address"

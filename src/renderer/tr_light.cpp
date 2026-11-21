@@ -3343,6 +3343,10 @@ static void R_AddImposterDrawsurfs( viewEntity_s* space, const viewDef_s* view,
 	R_AddImposterCard( space, imposter, instance, view, counters );
 }
 
+// RenderDecals.cpp
+void R_AddDecalSurfaces( viewEntity_s* const* spaces, int numSpaces );
+void R_FreeDecalViewGeometry( void );
+
 static void R_AddImposterSurfaces() {
 	viewDef_s* view = RB_GetViewDef();
 	if ( view == NULL || r_skipImposters.GetBool() ) return;
@@ -3375,6 +3379,13 @@ void R_AddModelSurfaces() {
 			if ( entity->entityDef != NULL ) R_AddAmbientDrawsurfs( entity );
 		}
 		R_AddImposterSurfaces();
+		{
+			idList< viewEntity_s* > spaces;
+			for ( viewEntity_s* entity = view->viewEntities; entity != NULL; entity = entity->next ) {
+				spaces.Append( entity );
+			}
+			R_AddDecalSurfaces( spaces.Begin(), spaces.Num() );
+		}
 		SortDrawSurfaces( sortedDrawSurfaces );
 		view->drawSurfs = sortedDrawSurfaces.Begin();
 		view->numDrawSurfs = sortedDrawSurfaces.Num();
@@ -3442,6 +3453,10 @@ void R_AddModelSurfaces() {
 		}
 	}
 	R_AddImposterSurfaces();
+	{
+		RENDER_METRIC_SCOPE( "Add decal surfaces" );
+		R_AddDecalSurfaces( frontEndModelSpaces.Begin(), frontEndModelSpaces.Num() );
+	}
 	{
 		RENDER_METRIC_SCOPE( "Sort draw surfaces" );
 		SortDrawSurfaces( sortedDrawSurfaces );
@@ -3644,6 +3659,7 @@ void R_RemoveUnecessaryViewLights() {
 }
 
 void R_FreeBuiltDrawView() {
+	R_FreeDecalViewGeometry();
 	for ( int index = 0; index < frontEndRegisters.Num(); ++index ) delete[] frontEndRegisters[ index ];
 	for ( int index = 0; index < frontEndDrawSurfaces.Num(); ++index ) {
 		frontEndDrawSurfaceAllocator.Free( frontEndDrawSurfaces[ index ] );

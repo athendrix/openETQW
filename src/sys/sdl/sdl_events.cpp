@@ -12,6 +12,8 @@
 #include "TextInputFocus.h"
 
 SDL_Window* Sys_GetGameSDLWindow( void );
+void Sys_SDLGamepadDeviceEvent( const SDL_Event& event );	// sdl_gamepad.cpp
+void Sys_PollSDLGamepads( void );
 #ifdef __APPLE__
 void Sys_KeepFullscreenComposited( void ); // macosx_sdl3.cpp (#385)
 #endif
@@ -347,6 +349,14 @@ void Sys_ProcessSDLEvents( void ) {
 				}
 
 				keyNum_t key = MapSDLScancode( event.key.scancode );
+				// the console key is the one left of 1 (SDL_SCANCODE_GRAVE); on layouts where
+				// another key types ` or ~ (UK ISO, some laptops), that key opens it too
+				if ( key != K_CONSOLE ) {
+					const SDL_Keycode typed = SDL_GetKeyFromScancode( event.key.scancode, SDL_KMOD_NONE, false );
+					if ( typed == SDLK_GRAVE || typed == SDLK_TILDE ) {
+						key = K_CONSOLE;
+					}
+				}
 				const bool textInputActive = SDL_TextInputActive( Sys_GetGameSDLWindow() );
 				// Backspace, Enter and Escape belong to an open composition (TextInputFocus.h)
 				if ( composition.DropKey( CompositionKey( key ), event.key.down ) ) {
@@ -453,10 +463,17 @@ void Sys_ProcessSDLEvents( void ) {
 				break;
 			}
 
+			case SDL_EVENT_GAMEPAD_ADDED:
+			case SDL_EVENT_GAMEPAD_REMOVED:
+				Sys_SDLGamepadDeviceEvent( event );
+				break;
+
 			default:
 				break;
 		}
 	}
+	// after the events, so a pad unplugged this frame is closed first
+	Sys_PollSDLGamepads();
 #ifdef __APPLE__
 	Sys_KeepFullscreenComposited();
 #endif

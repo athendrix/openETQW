@@ -8,6 +8,7 @@
 #include "sys_render.h"
 #include "../renderer/VulkanBackend.h"
 #include "VideoModeAvailability.h"
+#include "../SteamDeck.h"
 
 void Sys_SDL_SetVideoHints( void );
 SDL_Window* Sys_GetGameSDLWindow( void );
@@ -492,6 +493,13 @@ void Sys_SDL_SetVideoHints( void ) {
 	SDL_SetHint( SDL_HINT_RENDER_DRIVER, "metal,gpu,software" );
 	SDL_SetHint( SDL_HINT_VIDEO_METAL_AUTO_RESIZE_DRAWABLE, "1" );
 #endif
+	// On a Steam Deck the console and the GUI edit boxes (chat, server address, player
+	// name) start text input only while they have the focus (TextInputFocus.h); this
+	// makes SDL open Steam's on-screen keyboard then, which its "auto" setting may not
+	// do when it sees the Deck's built-in keyboard device.
+	if ( Sys_IsSteamDeck() ) {
+		SDL_SetHint( SDL_HINT_ENABLE_SCREEN_KEYBOARD, "1" );
+	}
 }
 
 SDL_Window* Sys_GetGameSDLWindow( void ) {

@@ -130,12 +130,15 @@ def validate_package_dir(package_dir: Path, arch: str) -> None:
         package_dir / f"{PRODUCT_NAME}-ded_{arch}.exe",
         package_dir / f"game_{arch}.dll",
         package_dir / "SDL3.dll",
-        package_dir / "z.dll",
         package_dir / "glslangValidator.exe",
         package_dir / "README.txt",
         package_dir / LICENSE_RELATIVE,
     ]
     missing = [path for path in required_files if not path.is_file() and not path.is_symlink()]
+    # zlib's DLL is z.dll up to 1.3, libz.dll from 1.4 with MSVC, zlib1.dll in older builds
+    zlib_names = ("z.dll", "libz.dll", "zlib1.dll")
+    if not any((package_dir / name).is_file() for name in zlib_names):
+        missing.append(package_dir / " or ".join(zlib_names))
     vkprogs = package_dir / "base" / "vkprogs"
     if vkprogs.is_symlink() or not vkprogs.is_dir() or not any(p.is_file() for p in vkprogs.rglob("*")):
         missing.append(vkprogs)

@@ -57,7 +57,9 @@ idCVar				idAsyncNetwork::clientMaxPrediction( "net_clientMaxPrediction", "1000"
 idCVar				idAsyncNetwork::clientUsercmdBackup( "net_clientUsercmdBackup", "5", CVAR_SYSTEM | CVAR_INTEGER | CVAR_NOCHEAT, "number of usercmds to resend" );
 idCVar				idAsyncNetwork::clientRemoteConsoleAddress( "net_clientRemoteConsoleAddress", "localhost", CVAR_SYSTEM | CVAR_NOCHEAT, "remote console address" );
 idCVar				idAsyncNetwork::clientRemoteConsolePassword( "net_clientRemoteConsolePassword", "", CVAR_SYSTEM | CVAR_NOCHEAT, "remote console password" );
-idCVar				idAsyncNetwork::master0( "net_master0", "etqwmaster.idsoftware.com:27733", CVAR_SYSTEM | CVAR_ROM, "idnet master server address" );
+// The retail master servers are gone. OpenETQW never contacts one (MasterHeartbeat is a
+// no-op and nothing resolves these), so the retail default is cleared as well.
+idCVar				idAsyncNetwork::master0( "net_master0", "", CVAR_SYSTEM | CVAR_ROM, "unused: the retail master servers are gone" );
 idCVar				idAsyncNetwork::master1( "net_master1", "", CVAR_SYSTEM | CVAR_ARCHIVE, "1st master server address" );
 idCVar				idAsyncNetwork::master2( "net_master2", "", CVAR_SYSTEM | CVAR_ARCHIVE, "2nd master server address" );
 idCVar				idAsyncNetwork::master3( "net_master3", "", CVAR_SYSTEM | CVAR_ARCHIVE, "3rd master server address" );
@@ -108,9 +110,9 @@ void idAsyncNetwork::Init( void ) {
 	cmdSystem->AddCommand( "nextMap", NextMap_f, CMD_FL_SYSTEM, "loads the next map on the server" );
 	cmdSystem->AddCommand( "connect", Connect_f, CMD_FL_SYSTEM, "connects to a server" );
 	cmdSystem->AddCommand( "reconnect", Reconnect_f, CMD_FL_SYSTEM, "reconnect to the last server we tried to connect to" );
-	cmdSystem->AddCommand( "serverInfo", GetServerInfo_f, CMD_FL_SYSTEM, "shows server info" );
-	cmdSystem->AddCommand( "LANScan", GetLANServers_f, CMD_FL_SYSTEM, "scans LAN for servers" );
-	cmdSystem->AddCommand( "listServers", ListServers_f, CMD_FL_SYSTEM, "lists scanned servers" );
+	cmdSystem->AddCommand( "serverInfo", GetServerInfo_f, CMD_FL_SYSTEM, "asks a server (host or host:port) for its settings and players and prints them" );
+	cmdSystem->AddCommand( "LANScan", GetLANServers_f, CMD_FL_SYSTEM, "lists the servers on the LAN and in the server list (queryServers lan)" );
+	cmdSystem->AddCommand( "listServers", ListServers_f, CMD_FL_SYSTEM, "lists the servers in the server list (queryServers)" );
 	cmdSystem->AddCommand( "rcon", RemoteConsole_f, CMD_FL_SYSTEM, "sends remote console command to server" );
 	cmdSystem->AddCommand( "heartbeat", Heartbeat_f, CMD_FL_SYSTEM, "send a heartbeat to the the master servers" );
 	cmdSystem->AddCommand( "kick", Kick_f, CMD_FL_SYSTEM, "kick a client by connection number" );
@@ -310,8 +312,17 @@ void idAsyncNetwork::Reconnect_f( const idCmdArgs &args ) {
 idAsyncNetwork::GetServerInfo_f
 ==================
 */
+// the server browser's query (src/sdnet/SDNetBrowser.cpp) answers these console commands;
+// the old idServerScan path never sent anything, and serverInfo replaced the address of
+// the server the client was connected to
+void SDNet_BrowserServerInfo( const char* address );
+
 void idAsyncNetwork::GetServerInfo_f( const idCmdArgs &args ) {
-	client.GetServerInfo( args.Argv( 1 ) );
+	if ( args.Argc() != 2 ) {
+		common->Printf( "usage: serverInfo <host or host:port>\n" );
+		return;
+	}
+	SDNet_BrowserServerInfo( args.Argv( 1 ) );
 }
 
 /*
@@ -320,7 +331,7 @@ idAsyncNetwork::GetLANServers_f
 ==================
 */
 void idAsyncNetwork::GetLANServers_f( const idCmdArgs &args ) {
-	client.GetLANServers();
+	cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "queryServers lan\n" );
 }
 
 /*
@@ -329,7 +340,7 @@ idAsyncNetwork::ListServers_f
 ==================
 */
 void idAsyncNetwork::ListServers_f( const idCmdArgs &args ) {
-	client.ListServers();
+	cmdSystem->BufferCommandText( CMD_EXEC_APPEND, "queryServers\n" );
 }
 
 /*

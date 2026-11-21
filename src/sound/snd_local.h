@@ -458,6 +458,7 @@ public:
 	// ETQW: start a channel's sample this many milliseconds in
 	virtual void		SetChannelOffset( const soundChannel_t channel, int ms );
 	int					StartSoundOnChannel( const idSoundShader *shader, const soundChannel_t channel, float diversity, int shaderFlags );
+	const idSoundShader *	MovieSoundTrack( const idSoundShader *movieShader, const char *trackPath );
 
 	//----------------------------------------------
 
@@ -714,7 +715,8 @@ public:
 	virtual int				GetCaptureRate( void ) const { return 0; }
 	virtual bool			QuerySpeakers( int numSpeakers ) const;
 	virtual void			RefreshSoundDevices( void ) {}
-	virtual const idWStrList*	ListSoundPlaybackDevices() const { return new idWStrList; }
+	virtual const idWStrList*	ListSoundPlaybackDevices() const;
+	// no voice chat (VoIP is not supported), so no capture devices to choose from
 	virtual const idWStrList*	ListSoundCaptureDevices() const { return new idWStrList; }
 	virtual void			FreeDeviceList( const idWStrList* list ) const { delete list; }
 	virtual int				GetAudioDeviceHash( const wchar_t* name ) const;
