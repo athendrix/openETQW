@@ -611,10 +611,12 @@ void sdDeviceContextLocal::DrawTimer(
 		return;
 	}
 
-	const int sides = 32;
+	// the centre and sides + 1 rim points must fit the winding's fixed MAX_POINTS
+	const int sides = idWinding2D::MAX_POINTS - 2;
+	const int rimPoints = Min( sides, idMath::Ftoi( idMath::Floor( sides * percent ) ) ) + 1;
 	idWinding2D winding;
 	winding.AddPoint( x, y, ( st0.x + st1.x ) * 0.5f, ( st0.y + st1.y ) * 0.5f );
-	for ( int i = 0; i <= sides * percent; i++ ) {
+	for ( int i = 0; i < rimPoints; i++ ) {
 		const float fraction = static_cast< float >( i ) / static_cast< float >( sides );
 		const float angle = -idMath::HALF_PI + idMath::TWO_PI * fraction;
 		const float c = idMath::Cos( angle );
